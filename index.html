@@ -497,4 +497,240 @@
     const actual = lastLog ? lastLog.count : 0;
 
     const delta = actual - targetNow;
-    const rate = workingWindowMs > 0 ? total / 
+    const rate = workingWindowMs > 0 ? total / (workingWindowMs/3600000) : 0;
+    const deltaMinutes = rate > 0 ? (delta / rate) * 60 : 0;
+
+    const beforeStart = now < start;
+    const afterDeadline = now > deadline;
+
+    const pctTime = workingWindowMs > 0 ? Math.min(100, Math.max(0, (elapsedWorking/workingWindowMs)*100)) : 0;
+    const pctPkg = total > 0 ? Math.min(100, Math.max(0, (actual/total)*100)) : 0;
+
+    const remainingWorkingMs = Math.max(0, workingWindowMs - elapsedWorking);
+    const remainingPkgs = total - actual;
+    const neededRatePerHour = remainingWorkingMs > 0 ? remainingPkgs / (remainingWorkingMs/3600000) : null;
+
+    return { start, deadline, shiftEnd, now, total, targetNow, actual, delta, deltaMinutes,
+      beforeStart, afterDeadline, pctTime, pctPkg, rate, neededRatePerHour, remainingPkgs };
+  }
+
+  function populateSelects(){
+    const startSel = document.getElementById('inputStart');
+    const endSel = document.getElementById('inputEnd');
+    startSel.innerHTML = '';
+    endSel.innerHTML = '';
+    t('opts').start.forEach(o => {
+      const opt = document.createElement('option');
+      opt.value = o.v; opt.textContent = o.l;
+      startSel.appendChild(opt);
+    });
+    t('opts').end.forEach(o => {
+      const opt = document.createElement('option');
+      opt.value = o.v; opt.textContent = o.l;
+      endSel.appendChild(opt);
+    });
+    startSel.value = config.startTime;
+    endSel.value = config.shiftEnd;
+  }
+
+  function applyStaticText(){
+    document.documentElement.lang = lang;
+    document.getElementById('tTitle').textContent = t('title');
+    document.getElementById('tSetupHeading').textContent = t('setupHeading');
+    document.getElementById('lblTotal').textContent = t('lblTotal');
+    document.getElementById('inputTotal').placeholder = t('placeholderTotal');
+    document.getElementById('lblStart').textContent = t('lblStart');
+    document.getElementById('lblEnd').textContent = t('lblEnd');
+    document.getElementById('lblBuffer').textContent = t('lblBuffer');
+    document.getElementById('btnStart').textContent = t('btnStart');
+    document.getElementById('tStatusLabel').textContent = t('statusLabel');
+    document.getElementById('tFlapTargetLbl').textContent = t('flapTargetLbl');
+    document.getElementById('tFlapActualLbl').textContent = t('flapActualLbl');
+    document.getElementById('tFlapDeltaLbl').textContent = t('flapDeltaLbl');
+    document.getElementById('tLogHeading').textContent = t('logHeading');
+    document.getElementById('inputActual').placeholder = t('placeholderActual');
+    document.getElementById('btnLog').textContent = t('btnLog');
+    document.getElementById('btnEditConfig').textContent = t('btnEditConfig');
+    document.getElementById('btnResetDay').textContent = t('btnResetDay');
+    document.getElementById('btnLangEn').classList.toggle('active', lang==='en');
+    document.getElementById('btnLangDe').classList.toggle('active', lang==='de');
+    document.getElementById('tLinkLabel').textContent = t('linkLabel');
+    document.getElementById('btnOpenPanel').textContent = t('linkOpen');
+    document.getElementById('tLinkHint').textContent = t('linkHint');
+    populateSelects();
+  }
+
+  function render(){
+    document.getElementById('clockNow').textContent = fmtClock(new Date());
+    document.getElementById('clockDate').textContent = new Date().toLocaleDateString(lang === 'de' ? 'de-DE' : 'en-GB');
+
+    if(!dayData.totalPackages){
+      document.getElementById('setupCard').classList.remove('hidden');
+      document.getElementById('dashboard').classList.add('hidden');
+      return;
+    }
+    document.getElementById('setupCard').classList.add('hidden');
+    document.getElementById('dashboard').classList.remove('hidden');
+
+    const s = computeState();
+    document.getElementById('dayTotalLabel').textContent =
+      t('totalLabel')(fmtNum(s.total), fmtTimeShort(s.start), fmtTimeShort(s.deadline));
+
+    const band = document.getElementById('statusBand');
+    const main = document.getElementById('statusMain');
+    const sub = document.getElementById('statusSub');
+    const barFill = document.getElementById('barFill');
+    const barMark = document.getElementById('barTargetMark');
+
+    if(s.beforeStart){
+      band.style.background = 'var(--steel)';
+      main.style.color = 'var(--steel)';
+      main.textContent = t('notStarted');
+      sub.textContent = t('shiftStartsAt')(fmtTimeShort(s.start));
+    } else if (s.total <= 0) {
+      band.style.background = 'var(--steel)';
+      main.style.color = 'var(--steel)';
+      main.textContent = t('waitingData');
+      sub.textContent = t('noTotalEntered');
+    } else {
+      const absDelta = Math.abs(s.delta);
+      const isAhead = s.delta >= -1;
+      const color = isAhead ? 'var(--green)' : 'var(--red)';
+      band.style.background = color;
+      main.style.color = color;
+      main.textContent = isAhead ? t('aheadBy')(fmtNum(absDelta)) : t('behindBy')(fmtNum(absDelta));
+
+      const minTxt = Math.abs(s.deltaMinutes) < 1 ? t('lessThanMin') : t('minutes')(fmtNum(Math.abs(s.deltaMinutes)));
+      sub.textContent = isAhead ? t('roughlyAhead')(minTxt) : t('roughlyBehind')(minTxt);
+      if(s.afterDeadline){ sub.textContent += '  •  ' + t('deadlineReached'); }
+    }
+
+    document.getElementById('flapTarget').textContent = fmtNum(s.targetNow);
+    document.getElementById('flapActual').textContent = fmtNum(s.actual);
+    const deltaEl = document.getElementById('flapDelta');
+    deltaEl.textContent = (s.delta >= 0 ? '+' : '−') + fmtNum(Math.abs(s.delta));
+    deltaEl.style.color = s.total>0 ? (s.delta >= -1 ? 'var(--green)' : 'var(--red)') : 'var(--text)';
+
+    barFill.style.width = s.pctPkg + '%';
+    barFill.style.background = s.total>0 ? (s.delta >= -1 ? 'var(--green)' : 'var(--red)') : 'var(--amber)';
+    barMark.style.left = s.pctTime + '%';
+    document.getElementById('barPct').textContent = t('pctPackages')(fmtNum(s.pctPkg));
+    document.getElementById('timePct').textContent = t('pctTime')(fmtNum(s.pctTime));
+
+    const paceHint = document.getElementById('paceHint');
+    if(s.total>0 && !s.beforeStart && !s.afterDeadline){
+      if(s.remainingPkgs <= 0){
+        paceHint.textContent = t('allDone');
+      } else if(s.neededRatePerHour !== null){
+        const onTrack = Math.abs(s.deltaMinutes) <= 2;
+        if(onTrack){
+          paceHint.textContent = t('onTrackMsg');
+        } else if(s.delta < 0){
+          paceHint.textContent = t('speedUp')(fmtNum(s.neededRatePerHour), fmtNum(s.rate));
+        } else {
+          paceHint.textContent = t('easeOff')(fmtNum(s.neededRatePerHour), fmtNum(s.rate));
+        }
+      } else {
+        paceHint.textContent = '';
+      }
+    } else {
+      paceHint.textContent = '';
+    }
+
+    const hist = document.getElementById('historyList');
+    hist.innerHTML = '';
+    [...dayData.log].reverse().forEach(item => {
+      const row = document.createElement('div');
+      row.className = 'history-item';
+      const time = new Date(item.time);
+      row.innerHTML = `<span>${fmtTimeShort(time)}</span><span class="cnt mono">${fmtNum(item.count)}</span>`;
+      hist.appendChild(row);
+    });
+  }
+
+  // ---- events ----
+  document.getElementById('btnStart').addEventListener('click', async () => {
+    const total = parseInt(document.getElementById('inputTotal').value, 10);
+    const start = document.getElementById('inputStart').value;
+    const end = document.getElementById('inputEnd').value;
+    const buf = parseInt(document.getElementById('inputBuffer').value, 10);
+    if(!total || total <= 0){ alert(t('confirmTotal')); return; }
+    config.startTime = start;
+    config.shiftEnd = end;
+    config.bufferMinutes = isNaN(buf) ? 15 : buf;
+    dayData.totalPackages = total;
+    dayData.log = [];
+    await saveConfig();
+    await saveDay();
+    render();
+  });
+
+  document.getElementById('btnLog').addEventListener('click', async () => {
+    const val = parseInt(document.getElementById('inputActual').value, 10);
+    if(isNaN(val) || val < 0){ return; }
+    dayData.log.push({ time: new Date().toISOString(), count: val });
+    await saveDay();
+    document.getElementById('inputActual').value = '';
+    render();
+    const flap = document.getElementById('flapActual');
+    flap.classList.remove('pulse'); void flap.offsetWidth; flap.classList.add('pulse');
+  });
+
+  document.getElementById('inputActual').addEventListener('keydown', (e) => {
+    if(e.key === 'Enter'){ document.getElementById('btnLog').click(); }
+  });
+
+  document.getElementById('btnResetDay').addEventListener('click', async () => {
+    if(!confirm(t('confirmReset'))) return;
+    dayData = { totalPackages: null, log: [] };
+    await saveDay();
+    render();
+  });
+
+  document.getElementById('btnEditConfig').addEventListener('click', () => {
+    document.getElementById('inputTotal').value = dayData.totalPackages || '';
+    document.getElementById('inputStart').value = config.startTime;
+    document.getElementById('inputEnd').value = config.shiftEnd;
+    document.getElementById('inputBuffer').value = config.bufferMinutes;
+    document.getElementById('setupCard').classList.remove('hidden');
+    document.getElementById('dashboard').classList.add('hidden');
+  });
+
+  async function setLang(l){
+    lang = l;
+    applyStaticText();
+    render();
+    await saveConfig();
+  }
+  document.getElementById('btnLangEn').addEventListener('click', () => setLang('en'));
+  document.getElementById('btnLangDe').addEventListener('click', () => setLang('de'));
+
+  document.getElementById('inputPanelLink').addEventListener('change', async (e) => {
+    config.panelLink = e.target.value.trim();
+    await saveConfig();
+  });
+  document.getElementById('btnOpenPanel').addEventListener('click', () => {
+    const url = document.getElementById('inputPanelLink').value.trim();
+    if(!url) return;
+    window.open(url, '_blank', 'noopener');
+  });
+
+  // ---- init ----
+  async function init(){
+    await loadConfig();
+    await loadDay();
+    applyStaticText();
+    document.getElementById('inputBuffer').value = config.bufferMinutes;
+    document.getElementById('inputPanelLink').value = config.panelLink || '';
+    render();
+    setInterval(async () => {
+      const k = todayKey();
+      if(k !== dayKey){ await loadDay(); }
+      render();
+    }, 1000);
+  }
+  init();
+})();
+</script>
+</body>
+</html>
