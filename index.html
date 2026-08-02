@@ -416,6 +416,7 @@
   };
 
   let lang = 'en';
+  let isEditing = false;
   const BREAK_MINUTES = 30;
   let config = { startTime:'02:00', shiftEnd:'09:00', bufferMinutes:15, lang:'en', panelLink:'' };
   let dayData = { totalPackages: null, log: [] };
@@ -564,7 +565,7 @@
     document.getElementById('clockNow').textContent = fmtClock(new Date());
     document.getElementById('clockDate').textContent = new Date().toLocaleDateString(lang === 'de' ? 'de-DE' : 'en-GB');
 
-    if(!dayData.totalPackages){
+    if(!dayData.totalPackages || isEditing){
       document.getElementById('setupCard').classList.remove('hidden');
       document.getElementById('dashboard').classList.add('hidden');
       return;
@@ -658,8 +659,9 @@
     config.startTime = start;
     config.shiftEnd = end;
     config.bufferMinutes = isNaN(buf) ? 15 : buf;
+    if(!isEditing){ dayData.log = []; }
     dayData.totalPackages = total;
-    dayData.log = [];
+    isEditing = false;
     await saveConfig();
     await saveDay();
     render();
@@ -683,11 +685,13 @@
   document.getElementById('btnResetDay').addEventListener('click', async () => {
     if(!confirm(t('confirmReset'))) return;
     dayData = { totalPackages: null, log: [] };
+    isEditing = false;
     await saveDay();
     render();
   });
 
   document.getElementById('btnEditConfig').addEventListener('click', () => {
+    isEditing = true;
     document.getElementById('inputTotal').value = dayData.totalPackages || '';
     document.getElementById('inputStart').value = config.startTime;
     document.getElementById('inputEnd').value = config.shiftEnd;
