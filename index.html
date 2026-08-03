@@ -2,8 +2,16 @@
 <html lang="en" dir="ltr">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>Induct Pace Tracker</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0a0d10">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Induct Tracker">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="icon-192.png">
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap');
 
@@ -290,6 +298,31 @@
 
 <script>
 (function(){
+  // Fallback storage shim: outside Claude's artifact runtime, window.storage
+  // doesn't exist. When missing, back it with localStorage so data still
+  // persists on a standalone deployment (Vercel, GitHub Pages, etc.).
+  if(!window.storage){
+    window.storage = {
+      async get(key){
+        const raw = localStorage.getItem(key);
+        if(raw === null){ throw new Error('not found'); }
+        return { key, value: raw };
+      },
+      async set(key, value){
+        localStorage.setItem(key, value);
+        return { key, value };
+      },
+      async delete(key){
+        localStorage.removeItem(key);
+        return { key, deleted:true };
+      },
+      async list(prefix){
+        const keys = Object.keys(localStorage).filter(k => !prefix || k.startsWith(prefix));
+        return { keys, prefix };
+      }
+    };
+  }
+
   const STORAGE_KEY_CONFIG = 'config';
 
   const I18N = {
@@ -734,6 +767,12 @@
     }, 1000);
   }
   init();
+
+  if('serviceWorker' in navigator){
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('service-worker.js').catch(() => {});
+    });
+  }
 })();
 </script>
 </body>
