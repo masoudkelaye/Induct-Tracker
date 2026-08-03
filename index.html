@@ -193,6 +193,7 @@
     <div>
       <div class="title" id="tTitle">Induct Pace Tracker</div>
       <div class="subtitle" id="dayTotalLabel">—</div>
+      <div class="subtitle" id="requiredPaceLabel" style="color:var(--amber); font-weight:600; margin-top:2px;"></div>
     </div>
     <div style="text-align:right">
       <div class="clock mono" id="clockNow">--:--:--</div>
@@ -221,9 +222,15 @@
         <select id="inputEnd"></select>
       </div>
     </div>
-    <div class="field">
-      <label id="lblBuffer">Safety buffer (min)</label>
-      <input type="number" id="inputBuffer" value="15" inputmode="numeric">
+    <div class="row2">
+      <div class="field">
+        <label id="lblBreakStart">Break start time (30 min)</label>
+        <input type="time" id="inputBreakStart" value="05:00">
+      </div>
+      <div class="field">
+        <label id="lblBuffer">Safety buffer (min)</label>
+        <input type="number" id="inputBuffer" value="15" inputmode="numeric">
+      </div>
     </div>
     <button class="btn" id="btnStart">Start tracking</button>
   </div>
@@ -333,10 +340,11 @@
       placeholderTotal: 'e.g. 28000',
       lblStart: 'Shift start time',
       lblEnd: 'Shift end time',
-      lblBreakStart: 'Break start time',
+      lblBreakStart: 'Break start time (30 min)',
       lblBreakDur: 'Break duration (min)',
       lblBuffer: 'Safety buffer (min)',
       breakInfo: 'A fixed 30-minute unpaid break (German law) is automatically subtracted from the working window.',
+      requiredPace: (n) => `Required pace: ${n} packages/hour to finish on time`,
       btnStart: 'Start tracking',
       statusLabel: 'Current status',
       flapTargetLbl: 'should be processed by now',
@@ -393,10 +401,11 @@
       placeholderTotal: 'z. B. 28000',
       lblStart: 'Schichtbeginn',
       lblEnd: 'Schichtende',
-      lblBreakStart: 'Pausenbeginn',
+      lblBreakStart: 'Pausenbeginn (30 Min.)',
       lblBreakDur: 'Pausendauer (Min.)',
       lblBuffer: 'Sicherheitspuffer (Min.)',
       breakInfo: 'Eine feste, unbezahlte 30-minütige Pause (gesetzlich vorgeschrieben) wird automatisch vom Arbeitsfenster abgezogen.',
+      requiredPace: (n) => `Erforderliches Tempo: ${n} Pakete/Stunde, um pünktlich fertig zu werden`,
       btnStart: 'Tracking starten',
       statusLabel: 'Aktueller Status',
       flapTargetLbl: 'sollte bis jetzt bearbeitet sein',
@@ -451,7 +460,7 @@
   let lang = 'en';
   let isEditing = false;
   const BREAK_MINUTES = 30;
-  let config = { startTime:'02:00', shiftEnd:'09:00', bufferMinutes:15, lang:'en', panelLink:'' };
+  let config = { startTime:'02:00', shiftEnd:'09:00', bufferMinutes:15, breakStart:'05:00', lang:'en', panelLink:'' };
   let dayData = { totalPackages: null, log: [] };
   let dayKey = todayKey();
 
@@ -504,11 +513,13 @@
     const start = parseTimeToday(config.startTime);
     const shiftEnd = parseTimeToday(config.shiftEnd);
     const deadline = new Date(shiftEnd.getTime() - (config.bufferMinutes||0)*60000);
-    return {start, deadline, shiftEnd};
+    const breakStart = parseTimeToday(config.breakStart);
+    const breakEnd = new Date(breakStart.getTime() + BREAK_MINUTES*60000);
+    return {start, deadline, shiftEnd, breakStart, breakEnd};
   }
 
   function computeState(){
-    const {start, deadline, shiftEnd} = getWindow();
+    const {start, deadline, shiftEnd, breakStart, breakEnd} = getWindow();
     const now = new Date();
     const breakDurMs = BREAK_MINUTES*60000;
 
@@ -519,10 +530,14 @@
     if(elapsedRaw < 0) elapsedRaw = 0;
     if(elapsedRaw > rawWindowMs) elapsedRaw = rawWindowMs;
 
-    // Break time isn't tracked at a specific clock moment, so it's spread
-    // proportionally across the shift: elapsed *working* time scales down
-    // from elapsed *raw* time by the same ratio the break reduces the window.
-    const elapsedWorking = rawWindowMs > 0 ? elapsedRaw * (workingWindowMs/rawWindowMs) : 0;
+    // Subtract only the portion of the break that has actually elapsed by "now",
+    // so the target pace pauses precisely during the break window.
+    const overlapEnd = new Date(Math.min(now.getTime(), breakEnd.getTime()));
+    let overlap = overlapEnd - breakStart;
+    if(overlap < 0) overlap = 0;
+    if(overlap > breakDurMs) overlap = breakDurMs;
+
+    const elapsedWorking = Math.max(0, elapsedRaw - overlap);
 
     const total = dayData.totalPackages || 0;
     const targetNow = workingWindowMs > 0 ? total * (elapsedWorking/workingWindowMs) : 0;
@@ -536,6 +551,7 @@
 
     const beforeStart = now < start;
     const afterDeadline = now > deadline;
+    const onBreak = now >= breakStart && now < breakEnd;
 
     const pctTime = workingWindowMs > 0 ? Math.min(100, Math.max(0, (elapsedWorking/workingWindowMs)*100)) : 0;
     const pctPkg = total > 0 ? Math.min(100, Math.max(0, (actual/total)*100)) : 0;
@@ -544,8 +560,8 @@
     const remainingPkgs = total - actual;
     const neededRatePerHour = remainingWorkingMs > 0 ? remainingPkgs / (remainingWorkingMs/3600000) : null;
 
-    return { start, deadline, shiftEnd, now, total, targetNow, actual, delta, deltaMinutes,
-      beforeStart, afterDeadline, pctTime, pctPkg, rate, neededRatePerHour, remainingPkgs };
+    return { start, deadline, shiftEnd, breakStart, breakEnd, now, total, targetNow, actual, delta, deltaMinutes,
+      beforeStart, afterDeadline, onBreak, pctTime, pctPkg, rate, neededRatePerHour, remainingPkgs };
   }
 
   function populateSelects(){
@@ -575,6 +591,7 @@
     document.getElementById('inputTotal').placeholder = t('placeholderTotal');
     document.getElementById('lblStart').textContent = t('lblStart');
     document.getElementById('lblEnd').textContent = t('lblEnd');
+    document.getElementById('lblBreakStart').textContent = t('lblBreakStart');
     document.getElementById('lblBuffer').textContent = t('lblBuffer');
     document.getElementById('btnStart').textContent = t('btnStart');
     document.getElementById('tStatusLabel').textContent = t('statusLabel');
@@ -609,6 +626,8 @@
     const s = computeState();
     document.getElementById('dayTotalLabel').textContent =
       t('totalLabel')(fmtNum(s.total), fmtTimeShort(s.start), fmtTimeShort(s.deadline));
+    document.getElementById('requiredPaceLabel').textContent =
+      s.total > 0 ? t('requiredPace')(fmtNum(s.rate)) : '';
 
     const band = document.getElementById('statusBand');
     const main = document.getElementById('statusMain');
@@ -626,6 +645,11 @@
       main.style.color = 'var(--steel)';
       main.textContent = t('waitingData');
       sub.textContent = t('noTotalEntered');
+    } else if (s.onBreak) {
+      band.style.background = 'var(--amber)';
+      main.style.color = 'var(--amber)';
+      main.textContent = t('onBreak');
+      sub.textContent = t('onBreakSub')(fmtTimeShort(s.breakEnd));
     } else {
       const absDelta = Math.abs(s.delta);
       const isAhead = s.delta >= -1;
@@ -652,7 +676,7 @@
     document.getElementById('timePct').textContent = t('pctTime')(fmtNum(s.pctTime));
 
     const paceHint = document.getElementById('paceHint');
-    if(s.total>0 && !s.beforeStart && !s.afterDeadline){
+    if(s.total>0 && !s.beforeStart && !s.afterDeadline && !s.onBreak){
       if(s.remainingPkgs <= 0){
         paceHint.textContent = t('allDone');
       } else if(s.neededRatePerHour !== null){
@@ -687,10 +711,12 @@
     const total = parseInt(document.getElementById('inputTotal').value, 10);
     const start = document.getElementById('inputStart').value;
     const end = document.getElementById('inputEnd').value;
+    const breakStart = document.getElementById('inputBreakStart').value;
     const buf = parseInt(document.getElementById('inputBuffer').value, 10);
     if(!total || total <= 0){ alert(t('confirmTotal')); return; }
     config.startTime = start;
     config.shiftEnd = end;
+    config.breakStart = breakStart || '05:00';
     config.bufferMinutes = isNaN(buf) ? 15 : buf;
     if(!isEditing){ dayData.log = []; }
     dayData.totalPackages = total;
@@ -728,6 +754,7 @@
     document.getElementById('inputTotal').value = dayData.totalPackages || '';
     document.getElementById('inputStart').value = config.startTime;
     document.getElementById('inputEnd').value = config.shiftEnd;
+    document.getElementById('inputBreakStart').value = config.breakStart;
     document.getElementById('inputBuffer').value = config.bufferMinutes;
     document.getElementById('setupCard').classList.remove('hidden');
     document.getElementById('dashboard').classList.add('hidden');
@@ -757,6 +784,7 @@
     await loadConfig();
     await loadDay();
     applyStaticText();
+    document.getElementById('inputBreakStart').value = config.breakStart;
     document.getElementById('inputBuffer').value = config.bufferMinutes;
     document.getElementById('inputPanelLink').value = config.panelLink || '';
     render();
