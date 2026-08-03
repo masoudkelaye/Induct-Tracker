@@ -46,6 +46,14 @@
   }
   .title{ font-size: 15px; font-weight:700; letter-spacing:.3px; color: var(--text); }
   .subtitle{ font-size: 11.5px; color: var(--text-dim); margin-top:3px; }
+  .stat-total{
+    font-size: 16px; font-weight:700; color: var(--text); margin-top:6px;
+    font-family:'IBM Plex Mono', monospace; letter-spacing:.2px;
+  }
+  .stat-pace{
+    font-size: 18px; font-weight:800; color: var(--amber); margin-top:4px;
+    font-family:'IBM Plex Mono', monospace; letter-spacing:.2px;
+  }
   .clock{
     font-size: 26px; font-weight:600; color: var(--amber);
     letter-spacing: 1px;
@@ -121,7 +129,7 @@
   .status-sub{ font-size:12.5px; color: var(--text-dim); }
 
   .flap-row{
-    display:grid; grid-template-columns: repeat(4, 1fr); gap:10px; margin-top:20px;
+    display:grid; grid-template-columns: repeat(3, 1fr); gap:10px; margin-top:20px;
   }
   .flap{
     background:#0d1013; border:1px solid var(--line); border-radius:10px;
@@ -180,6 +188,7 @@
 
   @media (max-width:480px){
     .flap-row{ grid-template-columns: 1fr 1fr; }
+    .flap-row .flap:last-child{ grid-column: span 2; }
     .flap .val{ font-size:21px; }
     .status-headline{ font-size:24px; }
     .row3{ grid-template-columns: 1fr; }
@@ -192,8 +201,8 @@
   <header>
     <div>
       <div class="title" id="tTitle">Induct Pace Tracker</div>
-      <div class="subtitle" id="dayTotalLabel">—</div>
-      <div class="subtitle" id="requiredPaceLabel" style="color:var(--amber); font-weight:600; margin-top:2px;"></div>
+      <div class="stat-total" id="dayTotalLabel">—</div>
+      <div class="stat-pace" id="requiredPaceLabel"></div>
     </div>
     <div style="text-align:right">
       <div class="clock mono" id="clockNow">--:--:--</div>
@@ -269,10 +278,6 @@
         <div class="flap">
           <div class="val mono" id="flapDelta">0</div>
           <div class="lbl" id="tFlapDeltaLbl">difference (packages)</div>
-        </div>
-        <div class="flap">
-          <div class="val mono" id="flapRemaining">0</div>
-          <div class="lbl" id="tFlapRemainingLbl">packages remaining</div>
         </div>
       </div>
 
@@ -354,7 +359,6 @@
       flapTargetLbl: 'should be processed by now',
       flapActualLbl: 'actually processed',
       flapDeltaLbl: 'difference (packages)',
-      flapRemainingLbl: 'packages remaining',
       logHeading: 'Log new progress',
       placeholderActual: 'Packages processed so far',
       btnLog: 'Log',
@@ -416,7 +420,6 @@
       flapTargetLbl: 'sollte bis jetzt bearbeitet sein',
       flapActualLbl: 'tatsächlich bearbeitet',
       flapDeltaLbl: 'Differenz (Pakete)',
-      flapRemainingLbl: 'verbleibende Pakete',
       logHeading: 'Neuen Fortschritt eintragen',
       placeholderActual: 'Bisher bearbeitete Pakete',
       btnLog: 'Eintragen',
@@ -604,7 +607,6 @@
     document.getElementById('tFlapTargetLbl').textContent = t('flapTargetLbl');
     document.getElementById('tFlapActualLbl').textContent = t('flapActualLbl');
     document.getElementById('tFlapDeltaLbl').textContent = t('flapDeltaLbl');
-    document.getElementById('tFlapRemainingLbl').textContent = t('flapRemainingLbl');
     document.getElementById('tLogHeading').textContent = t('logHeading');
     document.getElementById('inputActual').placeholder = t('placeholderActual');
     document.getElementById('btnLog').textContent = t('btnLog');
@@ -675,7 +677,6 @@
     const deltaEl = document.getElementById('flapDelta');
     deltaEl.textContent = (s.delta >= 0 ? '+' : '−') + fmtNum(Math.abs(s.delta));
     deltaEl.style.color = s.total>0 ? (s.delta >= -1 ? 'var(--green)' : 'var(--red)') : 'var(--text)';
-    document.getElementById('flapRemaining').textContent = fmtNum(Math.max(0, s.remainingPkgs));
 
     barFill.style.width = s.pctPkg + '%';
     barFill.style.background = s.total>0 ? (s.delta >= -1 ? 'var(--green)' : 'var(--red)') : 'var(--amber)';
