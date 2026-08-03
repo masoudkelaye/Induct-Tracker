@@ -396,6 +396,10 @@
       paceNeeded: (rate, planned) => `To finish on time, you now need roughly ${rate} packages/hour from this point on (planned pace: ${planned} packages/hour).`,
       allDone: 'All of today\'s packages are processed — done for the day.',
       confirmTotal: 'Please enter the total packages for today.',
+      errMissingTime: 'Please fill in shift start, shift end, and break start time.',
+      errStartAfterEnd: 'Shift start must be earlier than shift end.',
+      errBufferTooLarge: 'The safety buffer leaves no working time — reduce the buffer or extend the shift.',
+      errBreakOutside: (s, e) => `Break start/end must fall between shift start (${s}) and the deadline (${e}). Adjust the break start time.`,
       confirmReset: 'Start a new day and clear today\'s data?',
       linkLabel: 'WMS panel link (reference)',
       linkOpen: 'Open panel',
@@ -447,6 +451,10 @@
       paceNeeded: (rate, planned) => `Um pünktlich fertig zu werden, braucht es ab jetzt etwa ${rate} Pakete/Stunde (geplantes Tempo: ${planned} Pakete/Stunde).`,
       allDone: 'Alle heutigen Pakete sind bearbeitet — fertig für heute.',
       confirmTotal: 'Bitte die Gesamtanzahl der heutigen Pakete eingeben.',
+      errMissingTime: 'Bitte Schichtbeginn, Schichtende und Pausenbeginn ausfüllen.',
+      errStartAfterEnd: 'Der Schichtbeginn muss vor dem Schichtende liegen.',
+      errBufferTooLarge: 'Der Sicherheitspuffer lässt keine Arbeitszeit übrig — Puffer verringern oder Schicht verlängern.',
+      errBreakOutside: (s, e) => `Pausenbeginn/-ende muss zwischen Schichtbeginn (${s}) und der Frist (${e}) liegen. Pausenbeginn anpassen.`,
       confirmReset: 'Neuen Tag starten und heutige Daten löschen?',
       linkLabel: 'WMS-Panel-Link (Referenz)',
       linkOpen: 'Panel öffnen',
@@ -521,21 +529,29 @@
   function computeState(){
     const {start, deadline, shiftEnd, breakStart, breakEnd} = getWindow();
     const now = new Date();
-    const breakDurMs = BREAK_MINUTES*60000;
 
     const rawWindowMs = deadline - start;
-    const workingWindowMs = Math.max(0, rawWindowMs - breakDurMs);
+
+    // Clamp the break to the actual [start, deadline] window so the break
+    // duration used for "total working time" always matches the break
+    // portion actually subtracted from elapsed time — even if the chosen
+    // break start/end falls partly (or fully) outside the shift window.
+    const effBreakStart = new Date(Math.min(Math.max(breakStart.getTime(), start.getTime()), deadline.getTime()));
+    const effBreakEnd = new Date(Math.min(Math.max(breakEnd.getTime(), start.getTime()), deadline.getTime()));
+    const effectiveBreakMs = Math.max(0, effBreakEnd - effBreakStart);
+
+    const workingWindowMs = Math.max(0, rawWindowMs - effectiveBreakMs);
 
     let elapsedRaw = now - start;
     if(elapsedRaw < 0) elapsedRaw = 0;
     if(elapsedRaw > rawWindowMs) elapsedRaw = rawWindowMs;
 
-    // Subtract only the portion of the break that has actually elapsed by "now",
-    // so the target pace pauses precisely during the break window.
-    const overlapEnd = new Date(Math.min(now.getTime(), breakEnd.getTime()));
-    let overlap = overlapEnd - breakStart;
+    // Subtract only the portion of the (clamped) break that has actually
+    // elapsed by "now", so the target pace pauses precisely during the break.
+    const overlapEnd = new Date(Math.min(now.getTime(), effBreakEnd.getTime()));
+    let overlap = overlapEnd - effBreakStart;
     if(overlap < 0) overlap = 0;
-    if(overlap > breakDurMs) overlap = breakDurMs;
+    if(overlap > effectiveBreakMs) overlap = effectiveBreakMs;
 
     const elapsedWorking = Math.max(0, elapsedRaw - overlap);
 
@@ -551,7 +567,7 @@
 
     const beforeStart = now < start;
     const afterDeadline = now > deadline;
-    const onBreak = now >= breakStart && now < breakEnd;
+    const onBreak = now >= breakStart && now < breakEnd && now >= start && now < deadline;
 
     const pctTime = workingWindowMs > 0 ? Math.min(100, Math.max(0, (elapsedWorking/workingWindowMs)*100)) : 0;
     const pctPkg = total > 0 ? Math.min(100, Math.max(0, (actual/total)*100)) : 0;
@@ -704,6 +720,16 @@
   }
 
   // ---- events ----
+  function timeToMinutes(hhmm){
+    const [h,m] = hhmm.split(':').map(Number);
+    return h*60 + m;
+  }
+  function fmtMinutesAsTime(mins){
+    const h = Math.floor(((mins%1440)+1440)%1440 / 60);
+    const m = ((mins%1440)+1440)%1440 % 60;
+    return String(h).padStart(2,'0') + ':' + String(m).padStart(2,'0');
+  }
+
   document.getElementById('btnStart').addEventListener('click', async () => {
     const total = parseInt(document.getElementById('inputTotal').value, 10);
     const start = document.getElementById('inputStart').value;
@@ -711,10 +737,27 @@
     const breakStart = document.getElementById('inputBreakStart').value;
     const buf = parseInt(document.getElementById('inputBuffer').value, 10);
     if(!total || total <= 0){ alert(t('confirmTotal')); return; }
+    if(!start || !end || !breakStart){ alert(t('errMissingTime')); return; }
+
+    const startMin = timeToMinutes(start);
+    const endMin = timeToMinutes(end);
+    const bufMin = isNaN(buf) ? 0 : buf;
+    const deadlineMin = endMin - bufMin;
+
+    if(startMin >= endMin){ alert(t('errStartAfterEnd')); return; }
+    if(deadlineMin <= startMin){ alert(t('errBufferTooLarge')); return; }
+
+    const breakStartMin = timeToMinutes(breakStart);
+    const breakEndMin = breakStartMin + BREAK_MINUTES;
+    if(breakStartMin < startMin || breakEndMin > deadlineMin){
+      alert(t('errBreakOutside')(start, fmtMinutesAsTime(deadlineMin)));
+      return;
+    }
+
     config.startTime = start;
     config.shiftEnd = end;
-    config.breakStart = breakStart || '05:00';
-    config.bufferMinutes = isNaN(buf) ? 0 : buf;
+    config.breakStart = breakStart;
+    config.bufferMinutes = bufMin;
     if(!isEditing){ dayData.log = []; }
     dayData.totalPackages = total;
     isEditing = false;
