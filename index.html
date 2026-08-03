@@ -121,7 +121,7 @@
   .status-sub{ font-size:12.5px; color: var(--text-dim); }
 
   .flap-row{
-    display:grid; grid-template-columns: 1fr 1fr 1fr; gap:10px; margin-top:20px;
+    display:grid; grid-template-columns: repeat(4, 1fr); gap:10px; margin-top:20px;
   }
   .flap{
     background:#0d1013; border:1px solid var(--line); border-radius:10px;
@@ -180,7 +180,7 @@
 
   @media (max-width:480px){
     .flap-row{ grid-template-columns: 1fr 1fr; }
-    .flap-row .flap:last-child{ grid-column: span 2; }
+    .flap .val{ font-size:21px; }
     .status-headline{ font-size:24px; }
     .row3{ grid-template-columns: 1fr; }
   }
@@ -270,6 +270,10 @@
           <div class="val mono" id="flapDelta">0</div>
           <div class="lbl" id="tFlapDeltaLbl">difference (packages)</div>
         </div>
+        <div class="flap">
+          <div class="val mono" id="flapRemaining">0</div>
+          <div class="lbl" id="tFlapRemainingLbl">packages remaining</div>
+        </div>
       </div>
 
       <div class="bar-wrap">
@@ -350,6 +354,7 @@
       flapTargetLbl: 'should be processed by now',
       flapActualLbl: 'actually processed',
       flapDeltaLbl: 'difference (packages)',
+      flapRemainingLbl: 'packages remaining',
       logHeading: 'Log new progress',
       placeholderActual: 'Packages processed so far',
       btnLog: 'Log',
@@ -411,6 +416,7 @@
       flapTargetLbl: 'sollte bis jetzt bearbeitet sein',
       flapActualLbl: 'tatsächlich bearbeitet',
       flapDeltaLbl: 'Differenz (Pakete)',
+      flapRemainingLbl: 'verbleibende Pakete',
       logHeading: 'Neuen Fortschritt eintragen',
       placeholderActual: 'Bisher bearbeitete Pakete',
       btnLog: 'Eintragen',
@@ -598,6 +604,7 @@
     document.getElementById('tFlapTargetLbl').textContent = t('flapTargetLbl');
     document.getElementById('tFlapActualLbl').textContent = t('flapActualLbl');
     document.getElementById('tFlapDeltaLbl').textContent = t('flapDeltaLbl');
+    document.getElementById('tFlapRemainingLbl').textContent = t('flapRemainingLbl');
     document.getElementById('tLogHeading').textContent = t('logHeading');
     document.getElementById('inputActual').placeholder = t('placeholderActual');
     document.getElementById('btnLog').textContent = t('btnLog');
@@ -668,6 +675,7 @@
     const deltaEl = document.getElementById('flapDelta');
     deltaEl.textContent = (s.delta >= 0 ? '+' : '−') + fmtNum(Math.abs(s.delta));
     deltaEl.style.color = s.total>0 ? (s.delta >= -1 ? 'var(--green)' : 'var(--red)') : 'var(--text)';
+    document.getElementById('flapRemaining').textContent = fmtNum(Math.max(0, s.remainingPkgs));
 
     barFill.style.width = s.pctPkg + '%';
     barFill.style.background = s.total>0 ? (s.delta >= -1 ? 'var(--green)' : 'var(--red)') : 'var(--amber)';
