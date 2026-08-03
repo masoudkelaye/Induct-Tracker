@@ -46,13 +46,15 @@
   }
   .title{ font-size: 15px; font-weight:700; letter-spacing:.3px; color: var(--text); }
   .subtitle{ font-size: 11.5px; color: var(--text-dim); margin-top:3px; }
-  .stat-total{
-    font-size: 16px; font-weight:700; color: var(--text); margin-top:6px;
-    font-family:'IBM Plex Mono', monospace; letter-spacing:.2px;
+  .stat-total{ font-size: 11.5px; color: var(--text-dim); margin-top:5px; }
+  .stat-pace{ font-size: 11.5px; color: var(--text-dim); margin-top:3px; }
+  .num-total{
+    font-size: 17px; font-weight:800; color: var(--text);
+    font-family:'IBM Plex Mono', monospace;
   }
-  .stat-pace{
-    font-size: 18px; font-weight:800; color: var(--amber); margin-top:4px;
-    font-family:'IBM Plex Mono', monospace; letter-spacing:.2px;
+  .num-pace{
+    font-size: 19px; font-weight:800; color: var(--amber);
+    font-family:'IBM Plex Mono', monospace;
   }
   .clock{
     font-size: 26px; font-weight:600; color: var(--amber);
@@ -127,6 +129,14 @@
     font-size: 30px; font-weight:800; margin-bottom: 2px; display:flex; align-items:baseline; gap:8px; flex-wrap:wrap;
   }
   .status-sub{ font-size:12.5px; color: var(--text-dim); }
+  .live-pace{
+    font-size: 12px; color: var(--text-dim); margin-top:14px; padding-top:14px;
+    border-top:1px solid var(--line);
+  }
+  .num-live-pace{
+    font-size: 22px; font-weight:800; color: var(--amber);
+    font-family:'IBM Plex Mono', monospace;
+  }
 
   .flap-row{
     display:grid; grid-template-columns: repeat(3, 1fr); gap:10px; margin-top:20px;
@@ -265,6 +275,7 @@
         <span id="statusMain" class="mono">—</span>
       </div>
       <div class="status-sub" id="statusSub">—</div>
+      <div class="live-pace" id="livePaceLabel"></div>
 
       <div class="flap-row">
         <div class="flap">
@@ -353,7 +364,9 @@
       lblBreakDur: 'Break duration (min)',
       lblBuffer: 'Safety buffer (min)',
       breakInfo: 'A fixed 30-minute unpaid break (German law) is automatically subtracted from the working window.',
-      requiredPace: (n) => `Required pace: ${n} packages/hour to finish on time`,
+      requiredPace: 'Required pace: {{n}} packages/hour to finish on time',
+      livePaceNeeded: 'Pace needed right now: {{n}} packages/hour',
+      livePaceDone: 'All packages processed for today.',
       btnStart: 'Start tracking',
       statusLabel: 'Current status',
       flapTargetLbl: 'should be processed by now',
@@ -364,7 +377,7 @@
       btnLog: 'Log',
       btnEditConfig: 'Edit times / buffer',
       btnResetDay: 'Start new day',
-      totalLabel: (n, s, e) => `Total today: ${n} packages  •  Window: ${s} – ${e}`,
+      totalLabel: 'Total today: {{n}} packages  •  Window: {{s}} – {{e}}',
       notStarted: 'Not started yet',
       shiftStartsAt: (s) => `Shift starts at ${s}`,
       waitingData: 'Waiting for data',
@@ -414,7 +427,9 @@
       lblBreakDur: 'Pausendauer (Min.)',
       lblBuffer: 'Sicherheitspuffer (Min.)',
       breakInfo: 'Eine feste, unbezahlte 30-minütige Pause (gesetzlich vorgeschrieben) wird automatisch vom Arbeitsfenster abgezogen.',
-      requiredPace: (n) => `Erforderliches Tempo: ${n} Pakete/Stunde, um pünktlich fertig zu werden`,
+      requiredPace: 'Erforderliches Tempo: {{n}} Pakete/Stunde, um pünktlich fertig zu werden',
+      livePaceNeeded: 'Gerade jetzt nötiges Tempo: {{n}} Pakete/Stunde',
+      livePaceDone: 'Alle heutigen Pakete sind bearbeitet.',
       btnStart: 'Tracking starten',
       statusLabel: 'Aktueller Status',
       flapTargetLbl: 'sollte bis jetzt bearbeitet sein',
@@ -425,7 +440,7 @@
       btnLog: 'Eintragen',
       btnEditConfig: 'Zeiten / Puffer bearbeiten',
       btnResetDay: 'Neuen Tag starten',
-      totalLabel: (n, s, e) => `Gesamt heute: ${n} Pakete  •  Zeitfenster: ${s} – ${e}`,
+      totalLabel: 'Gesamt heute: {{n}} Pakete  •  Zeitfenster: {{s}} – {{e}}',
       notStarted: 'Noch nicht gestartet',
       shiftStartsAt: (s) => `Schicht beginnt um ${s}`,
       waitingData: 'Warte auf Daten',
@@ -633,10 +648,13 @@
     document.getElementById('dashboard').classList.remove('hidden');
 
     const s = computeState();
-    document.getElementById('dayTotalLabel').textContent =
-      t('totalLabel')(fmtNum(s.total), fmtTimeShort(s.start), fmtTimeShort(s.deadline));
-    document.getElementById('requiredPaceLabel').textContent =
-      s.total > 0 ? t('requiredPace')(fmtNum(s.rate)) : '';
+    document.getElementById('dayTotalLabel').innerHTML = t('totalLabel')
+      .replace('{{n}}', `<span class="num-total">${fmtNum(s.total)}</span>`)
+      .replace('{{s}}', fmtTimeShort(s.start))
+      .replace('{{e}}', fmtTimeShort(s.deadline));
+    document.getElementById('requiredPaceLabel').innerHTML = s.total > 0
+      ? t('requiredPace').replace('{{n}}', `<span class="num-pace">${fmtNum(s.rate)}</span>`)
+      : '';
 
     const band = document.getElementById('statusBand');
     const main = document.getElementById('statusMain');
@@ -702,6 +720,19 @@
       }
     } else {
       paceHint.textContent = '';
+    }
+
+    const livePace = document.getElementById('livePaceLabel');
+    if(s.total>0 && !s.beforeStart && !s.afterDeadline && !s.onBreak){
+      if(s.remainingPkgs <= 0){
+        livePace.innerHTML = t('livePaceDone');
+      } else if(s.neededRatePerHour !== null){
+        livePace.innerHTML = t('livePaceNeeded').replace('{{n}}', `<span class="num-live-pace">${fmtNum(s.neededRatePerHour)}</span>`);
+      } else {
+        livePace.innerHTML = '';
+      }
+    } else {
+      livePace.innerHTML = '';
     }
 
     const hist = document.getElementById('historyList');
