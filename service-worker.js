@@ -1,4 +1,4 @@
-const CACHE_NAME = 'induct-tracker-v4';
+const CACHE_NAME = 'induct-tracker-v6';
 const ASSETS = [
   './index.html',
   './manifest.json',

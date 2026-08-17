@@ -87,6 +87,19 @@
   .field input:focus, .field select:focus{ outline:none; border-color: var(--amber); }
   .row2{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
   .row3{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; }
+  .wave-row{
+    display:grid; grid-template-columns: 90px 1fr 1fr 32px; gap:6px; margin-bottom:8px; align-items:center;
+  }
+  .wave-row input{
+    width:100%; background: var(--panel-2); border:1px solid var(--line); border-radius:8px;
+    color: var(--text); padding: 8px 8px; font-size:13px; font-family:'IBM Plex Mono',monospace;
+  }
+  .wave-row input:focus{ outline:none; border-color: var(--amber); }
+  .wave-remove{
+    background: transparent; border:1px solid var(--line); color: var(--text-dim);
+    border-radius:8px; width:32px; height:34px; cursor:pointer; font-size:16px; line-height:1;
+  }
+  .wave-remove:hover{ color: var(--red); border-color: var(--red); }
   .btn{
     background: var(--amber); color:#171208; border:none; border-radius:9px;
     padding: 12px 18px; font-size:14px; font-weight:700; cursor:pointer;
@@ -202,6 +215,8 @@
     .flap .val{ font-size:21px; }
     .status-headline{ font-size:24px; }
     .row3{ grid-template-columns: 1fr; }
+    .wave-row{ grid-template-columns: 78px 1fr 1fr 28px; gap:4px; }
+    .wave-row input{ padding:8px 5px; font-size:12px; }
   }
 </style>
 </head>
@@ -213,6 +228,7 @@
       <div class="title" id="tTitle">Induct Pace Tracker</div>
       <div class="stat-total" id="dayTotalLabel">—</div>
       <div class="stat-pace" id="requiredPaceLabel"></div>
+      <div class="subtitle" id="arrivedSoFarLabel"></div>
     </div>
     <div style="text-align:right">
       <div class="clock mono" id="clockNow">--:--:--</div>
@@ -228,8 +244,20 @@
   <div class="setup-card" id="setupCard">
     <h2 id="tSetupHeading">Start today's shift</h2>
     <div class="field">
-      <label id="lblTotal">Total packages today</label>
-      <input type="number" id="inputTotal" inputmode="numeric">
+      <label id="lblWaves">Planned arrival waves (time + small + large)</label>
+      <div id="waveRows"></div>
+      <button type="button" class="btn-ghost" id="btnAddWave" style="width:100%; margin-top:6px;"></button>
+      <div class="hint" id="waveTotalsHint" style="margin-top:8px;"></div>
+    </div>
+    <div class="row2">
+      <div class="field">
+        <label id="lblLargeWeight">Large package weight (× small)</label>
+        <input type="number" id="inputLargeWeight" value="2" step="0.1" inputmode="decimal">
+      </div>
+      <div class="field">
+        <label id="lblSplitPct">% processed before break</label>
+        <input type="number" id="inputSplitPct" value="40" inputmode="numeric">
+      </div>
     </div>
     <div class="row2">
       <div class="field">
@@ -308,10 +336,17 @@
 
     <div class="log-card">
       <h3 id="tLogHeading">Log new progress</h3>
-      <div class="log-input-row">
-        <input type="number" id="inputActual" inputmode="numeric" class="mono">
-        <button class="btn" id="btnLog" style="width:auto;"></button>
+      <div class="row2" style="margin-bottom:10px;">
+        <div class="field" style="margin-bottom:0;">
+          <label id="lblActualSmall">Small processed so far</label>
+          <input type="number" id="inputActualSmall" inputmode="numeric" class="mono">
+        </div>
+        <div class="field" style="margin-bottom:0;">
+          <label id="lblActualLarge">Large processed so far</label>
+          <input type="number" id="inputActualLarge" inputmode="numeric" class="mono">
+        </div>
       </div>
+      <button class="btn" id="btnLog"></button>
       <div class="history" id="historyList"></div>
     </div>
 
@@ -356,15 +391,20 @@
     en: {
       title: 'Induct Pace Tracker',
       setupHeading: "Start today's shift",
-      lblTotal: 'Total packages today',
-      placeholderTotal: 'e.g. 28000',
+      lblWaves: 'Planned arrival waves (time + small + large)',
+      btnAddWave: '+ Add wave',
+      waveTimePh: 'Time', waveSmallPh: 'Small', waveLargePh: 'Large',
+      waveTotalsHint: (n, s, l) => `Total planned: ${n} packages (${s} small + ${l} large)`,
+      arrivedSoFar: (n) => `Arrived so far (per plan): ${n} packages`,
+      lblLargeWeight: 'Large package weight (× small)',
+      lblSplitPct: '% processed before break',
       lblStart: 'Shift start time',
       lblEnd: 'Shift end time',
       lblBreakStart: 'Break start time (30 min)',
       lblBreakDur: 'Break duration (min)',
       lblBuffer: 'Safety buffer (min)',
       breakInfo: 'A fixed 30-minute unpaid break (German law) is automatically subtracted from the working window.',
-      requiredPace: 'Required pace: {{n}} packages/hour to finish on time',
+      requiredPace: 'Target pace — before break: {{n1}}/hr  •  after break: {{n2}}/hr',
       livePaceNeeded: 'Pace needed right now: {{n}} packages/hour',
       livePaceDone: 'All packages processed for today.',
       btnStart: 'Start tracking',
@@ -373,15 +413,16 @@
       flapActualLbl: 'actually processed',
       flapDeltaLbl: 'difference (packages)',
       logHeading: 'Log new progress',
-      placeholderActual: 'Packages processed so far',
+      lblActualSmall: 'Small processed so far',
+      lblActualLarge: 'Large processed so far',
       btnLog: 'Log',
       btnEditConfig: 'Edit times / buffer',
       btnResetDay: 'Start new day',
-      totalLabel: 'Total today: {{n}} packages  •  Window: {{s}} – {{e}}',
+      totalLabel: 'Total today: {{n}} packages ({{s}} small + {{l}} large)  •  Window: {{ws}} – {{we}}',
       notStarted: 'Not started yet',
       shiftStartsAt: (s) => `Shift starts at ${s}`,
       waitingData: 'Waiting for data',
-      noTotalEntered: 'Total package count not entered',
+      noTotalEntered: 'Package counts not entered',
       onBreak: 'On break',
       onBreakSub: (t) => `Break ends at ${t} — target pace is paused`,
       aheadBy: (n) => `${n} packages ahead`,
@@ -395,7 +436,7 @@
       pctTime: (n) => `${n}% of working time elapsed`,
       paceNeeded: (rate, planned) => `To finish on time, you now need roughly ${rate} packages/hour from this point on (planned pace: ${planned} packages/hour).`,
       allDone: 'All of today\'s packages are processed — done for the day.',
-      confirmTotal: 'Please enter the total packages for today.',
+      confirmTotal: 'Please enter both small and large package counts for today (at least one above zero).',
       errMissingTime: 'Please fill in shift start, shift end, and break start time.',
       errStartAfterEnd: 'Shift start must be earlier than shift end.',
       errBufferTooLarge: 'The safety buffer leaves no working time — reduce the buffer or extend the shift.',
@@ -405,21 +446,26 @@
       linkOpen: 'Open panel',
       linkHint: 'Not connected automatically — this just opens your saved link in a new tab. Keep entering counts manually below.',
       onTrackMsg: 'Right on pace — keep the current speed.',
-      speedUp: (rate, planned) => `Behind pace — speed up to roughly ${rate} packages/hour to catch up (planned pace: ${planned}/hour).`,
-      easeOff: (rate, planned) => `Ahead of pace — holding roughly ${rate} packages/hour is enough to stay on track, you can ease off a bit (planned pace: ${planned}/hour).`
+      speedUp: (rate) => `Behind pace — speed up to roughly ${rate} packages/hour to catch up.`,
+      easeOff: (rate) => `Ahead of pace — holding roughly ${rate} packages/hour is enough to stay on track, you can ease off a bit.`
     },
     de: {
       title: 'Induct-Tempo-Tracker',
       setupHeading: 'Heutige Schicht starten',
-      lblTotal: 'Pakete gesamt heute',
-      placeholderTotal: 'z. B. 28000',
+      lblWaves: 'Geplante Ankunftswellen (Zeit + klein + groß)',
+      btnAddWave: '+ Welle hinzufügen',
+      waveTimePh: 'Zeit', waveSmallPh: 'Klein', waveLargePh: 'Groß',
+      waveTotalsHint: (n, s, l) => `Geplant gesamt: ${n} Pakete (${s} klein + ${l} groß)`,
+      arrivedSoFar: (n) => `Bisher angekommen (laut Plan): ${n} Pakete`,
+      lblLargeWeight: 'Gewicht großes Paket (× klein)',
+      lblSplitPct: '% vor der Pause bearbeitet',
       lblStart: 'Schichtbeginn',
       lblEnd: 'Schichtende',
       lblBreakStart: 'Pausenbeginn (30 Min.)',
       lblBreakDur: 'Pausendauer (Min.)',
       lblBuffer: 'Sicherheitspuffer (Min.)',
       breakInfo: 'Eine feste, unbezahlte 30-minütige Pause (gesetzlich vorgeschrieben) wird automatisch vom Arbeitsfenster abgezogen.',
-      requiredPace: 'Erforderliches Tempo: {{n}} Pakete/Stunde, um pünktlich fertig zu werden',
+      requiredPace: 'Zieltempo — vor der Pause: {{n1}}/Std  •  nach der Pause: {{n2}}/Std',
       livePaceNeeded: 'Gerade jetzt nötiges Tempo: {{n}} Pakete/Stunde',
       livePaceDone: 'Alle heutigen Pakete sind bearbeitet.',
       btnStart: 'Tracking starten',
@@ -428,15 +474,16 @@
       flapActualLbl: 'tatsächlich bearbeitet',
       flapDeltaLbl: 'Differenz (Pakete)',
       logHeading: 'Neuen Fortschritt eintragen',
-      placeholderActual: 'Bisher bearbeitete Pakete',
+      lblActualSmall: 'Bisher bearbeitete kleine Pakete',
+      lblActualLarge: 'Bisher bearbeitete große Pakete',
       btnLog: 'Eintragen',
       btnEditConfig: 'Zeiten / Puffer bearbeiten',
       btnResetDay: 'Neuen Tag starten',
-      totalLabel: 'Gesamt heute: {{n}} Pakete  •  Zeitfenster: {{s}} – {{e}}',
+      totalLabel: 'Gesamt heute: {{n}} Pakete ({{s}} klein + {{l}} groß)  •  Zeitfenster: {{ws}} – {{we}}',
       notStarted: 'Noch nicht gestartet',
       shiftStartsAt: (s) => `Schicht beginnt um ${s}`,
       waitingData: 'Warte auf Daten',
-      noTotalEntered: 'Gesamtanzahl der Pakete nicht eingetragen',
+      noTotalEntered: 'Paketanzahl nicht eingetragen',
       onBreak: 'Pause',
       onBreakSub: (t) => `Pause endet um ${t} — Zielwert pausiert`,
       aheadBy: (n) => `${n} Pakete voraus`,
@@ -450,7 +497,7 @@
       pctTime: (n) => `${n}% der Arbeitszeit vergangen`,
       paceNeeded: (rate, planned) => `Um pünktlich fertig zu werden, braucht es ab jetzt etwa ${rate} Pakete/Stunde (geplantes Tempo: ${planned} Pakete/Stunde).`,
       allDone: 'Alle heutigen Pakete sind bearbeitet — fertig für heute.',
-      confirmTotal: 'Bitte die Gesamtanzahl der heutigen Pakete eingeben.',
+      confirmTotal: 'Bitte sowohl kleine als auch große Paketanzahl für heute eingeben (mindestens eine über null).',
       errMissingTime: 'Bitte Schichtbeginn, Schichtende und Pausenbeginn ausfüllen.',
       errStartAfterEnd: 'Der Schichtbeginn muss vor dem Schichtende liegen.',
       errBufferTooLarge: 'Der Sicherheitspuffer lässt keine Arbeitszeit übrig — Puffer verringern oder Schicht verlängern.',
@@ -460,16 +507,17 @@
       linkOpen: 'Panel öffnen',
       linkHint: 'Keine automatische Verbindung — öffnet nur den gespeicherten Link in einem neuen Tab. Zahlen weiterhin manuell unten eintragen.',
       onTrackMsg: 'Genau im Zeitplan — aktuelles Tempo beibehalten.',
-      speedUp: (rate, planned) => `Hinter dem Zeitplan — auf etwa ${rate} Pakete/Stunde beschleunigen, um aufzuholen (geplantes Tempo: ${planned}/Stunde).`,
-      easeOff: (rate, planned) => `Vor dem Zeitplan — etwa ${rate} Pakete/Stunde reichen, um im Plan zu bleiben, ihr könnt etwas langsamer machen (geplantes Tempo: ${planned}/Stunde).`
+      speedUp: (rate) => `Hinter dem Zeitplan — auf etwa ${rate} Pakete/Stunde beschleunigen, um aufzuholen.`,
+      easeOff: (rate) => `Vor dem Zeitplan — etwa ${rate} Pakete/Stunde reichen, um im Plan zu bleiben, ihr könnt etwas langsamer machen.`
     }
   };
 
   let lang = 'en';
   let isEditing = false;
+  let waveDraft = [];
   const BREAK_MINUTES = 30;
-  let config = { startTime:'02:00', shiftEnd:'09:00', bufferMinutes:0, breakStart:'05:00', lang:'en', panelLink:'' };
-  let dayData = { totalPackages: null, log: [] };
+  let config = { startTime:'02:00', shiftEnd:'09:00', bufferMinutes:0, breakStart:'05:00', largeWeight:2, splitPct:40, lang:'en', panelLink:'' };
+  let dayData = { smallTotal: null, largeTotal: null, waves: [], log: [] };
   let dayKey = todayKey();
 
   function t(key){ return I18N[lang][key]; }
@@ -500,9 +548,9 @@
     try{
       const r = await window.storage.get(dayKey, false);
       if(r && r.value) dayData = JSON.parse(r.value);
-      else dayData = { totalPackages: null, log: [] };
+      else dayData = { smallTotal: null, largeTotal: null, waves: [], log: [] };
     }catch(e){
-      dayData = { totalPackages: null, log: [] };
+      dayData = { smallTotal: null, largeTotal: null, waves: [], log: [] };
     }
   }
   async function saveDay(){
@@ -542,12 +590,14 @@
 
     const workingWindowMs = Math.max(0, rawWindowMs - effectiveBreakMs);
 
+    // Two work segments: before the break, and after the break.
+    const seg1DurationMs = Math.max(0, effBreakStart - start);
+    const seg2DurationMs = Math.max(0, deadline - effBreakEnd);
+
     let elapsedRaw = now - start;
     if(elapsedRaw < 0) elapsedRaw = 0;
     if(elapsedRaw > rawWindowMs) elapsedRaw = rawWindowMs;
 
-    // Subtract only the portion of the (clamped) break that has actually
-    // elapsed by "now", so the target pace pauses precisely during the break.
     const overlapEnd = new Date(Math.min(now.getTime(), effBreakEnd.getTime()));
     let overlap = overlapEnd - effBreakStart;
     if(overlap < 0) overlap = 0;
@@ -555,29 +605,95 @@
 
     const elapsedWorking = Math.max(0, elapsedRaw - overlap);
 
-    const total = dayData.totalPackages || 0;
-    const targetNow = workingWindowMs > 0 ? total * (elapsedWorking/workingWindowMs) : 0;
+    const smallTotal = dayData.smallTotal || 0;
+    const largeTotal = dayData.largeTotal || 0;
+    const largeWeight = config.largeWeight || 1;
+    const totalPhysical = smallTotal + largeTotal;
+    const totalEffort = smallTotal + largeTotal*largeWeight;
+    const avgWeight = totalPhysical > 0 ? totalEffort/totalPhysical : 1;
+
+    const splitFraction = Math.min(1, Math.max(0, (config.splitPct!=null ? config.splitPct : 40)/100));
+    const seg1EffortTarget = totalEffort * splitFraction;
+    const seg2EffortTarget = totalEffort - seg1EffortTarget;
+
+    // Piecewise ideal target: seg1 ramps up to seg1EffortTarget by break-start,
+    // freezes through the break, then seg2 ramps the rest up to totalEffort.
+    let idealTargetEffortNow;
+    if(now <= effBreakStart){
+      const elapsed1 = Math.min(seg1DurationMs, Math.max(0, now - start));
+      idealTargetEffortNow = seg1DurationMs > 0 ? seg1EffortTarget * (elapsed1/seg1DurationMs) : (now >= start ? seg1EffortTarget : 0);
+    } else if(now < effBreakEnd){
+      idealTargetEffortNow = seg1EffortTarget;
+    } else {
+      const elapsed2 = Math.min(seg2DurationMs, Math.max(0, now - effBreakEnd));
+      idealTargetEffortNow = seg1EffortTarget + (seg2DurationMs > 0 ? seg2EffortTarget * (elapsed2/seg2DurationMs) : seg2EffortTarget);
+    }
+    idealTargetEffortNow = Math.min(totalEffort, Math.max(0, idealTargetEffortNow));
+
+    // Packages can't be processed before they physically arrive. Cap the
+    // ideal deadline-paced target by what's actually arrived so far per the
+    // planned wave schedule — this way, a wave that's early doesn't force
+    // an unrealistic rush, and a wave that's late doesn't unfairly count
+    // as "falling behind".
+    const waves = dayData.waves || [];
+    let arrivedSmall = 0, arrivedLarge = 0;
+    waves.forEach(w => {
+      if(!w.time) return;
+      const wTime = parseTimeToday(w.time);
+      if(wTime <= now){ arrivedSmall += Number(w.small)||0; arrivedLarge += Number(w.large)||0; }
+    });
+    const arrivedPhysicalNow = arrivedSmall + arrivedLarge;
+    const arrivedEffortNow = arrivedSmall + arrivedLarge*largeWeight;
+
+    const targetEffortNow = Math.min(idealTargetEffortNow, arrivedEffortNow);
+    // When the arrival cap is the binding constraint, we know the exact
+    // physical mix that's arrived — use that directly rather than converting
+    // through the blended average weight (which would misrepresent a wave
+    // whose small/large mix differs from the day's overall planned mix).
+    const targetPhysicalNow = (arrivedEffortNow <= idealTargetEffortNow)
+      ? arrivedPhysicalNow
+      : (avgWeight > 0 ? idealTargetEffortNow/avgWeight : 0);
 
     const lastLog = dayData.log.length ? dayData.log[dayData.log.length-1] : null;
-    const actual = lastLog ? lastLog.count : 0;
+    const actualSmall = lastLog ? (lastLog.small||0) : 0;
+    const actualLarge = lastLog ? (lastLog.large||0) : 0;
+    const actualPhysical = actualSmall + actualLarge;
+    const actualEffort = actualSmall + actualLarge*largeWeight;
 
-    const delta = actual - targetNow;
-    const rate = workingWindowMs > 0 ? total / (workingWindowMs/3600000) : 0;
-    const deltaMinutes = rate > 0 ? (delta / rate) * 60 : 0;
+    const deltaEffort = actualEffort - targetEffortNow;
+    const deltaPhysical = actualPhysical - targetPhysicalNow;
+    const blendedRate = workingWindowMs > 0 ? totalEffort / (workingWindowMs/3600000) : 0;
+    const deltaMinutes = blendedRate > 0 ? (deltaEffort / blendedRate) * 60 : 0;
+
+    const rate1Effort = seg1DurationMs > 0 ? seg1EffortTarget / (seg1DurationMs/3600000) : 0;
+    const rate2Effort = seg2DurationMs > 0 ? seg2EffortTarget / (seg2DurationMs/3600000) : 0;
+    const rate1Physical = avgWeight > 0 ? rate1Effort/avgWeight : 0;
+    const rate2Physical = avgWeight > 0 ? rate2Effort/avgWeight : 0;
 
     const beforeStart = now < start;
     const afterDeadline = now > deadline;
     const onBreak = now >= breakStart && now < breakEnd && now >= start && now < deadline;
 
     const pctTime = workingWindowMs > 0 ? Math.min(100, Math.max(0, (elapsedWorking/workingWindowMs)*100)) : 0;
-    const pctPkg = total > 0 ? Math.min(100, Math.max(0, (actual/total)*100)) : 0;
+    const pctPkg = totalPhysical > 0 ? Math.min(100, Math.max(0, (actualPhysical/totalPhysical)*100)) : 0;
+    const pctTarget = totalEffort > 0 ? Math.min(100, Math.max(0, (targetEffortNow/totalEffort)*100)) : 0;
 
+    // Remaining physical packages / remaining working hours — an exact
+    // figure regardless of weighting, since it's just "how many items are
+    // left to clear in the time that's left".
+    const remainingSmall = Math.max(0, smallTotal - actualSmall);
+    const remainingLarge = Math.max(0, largeTotal - actualLarge);
+    const remainingPhysical = remainingSmall + remainingLarge;
     const remainingWorkingMs = Math.max(0, workingWindowMs - elapsedWorking);
-    const remainingPkgs = total - actual;
-    const neededRatePerHour = remainingWorkingMs > 0 ? remainingPkgs / (remainingWorkingMs/3600000) : null;
+    const neededPhysicalRatePerHour = remainingWorkingMs > 0 ? remainingPhysical / (remainingWorkingMs/3600000) : null;
 
-    return { start, deadline, shiftEnd, breakStart, breakEnd, now, total, targetNow, actual, delta, deltaMinutes,
-      beforeStart, afterDeadline, onBreak, pctTime, pctPkg, rate, neededRatePerHour, remainingPkgs };
+    return { start, deadline, shiftEnd, breakStart, breakEnd, now,
+      smallTotal, largeTotal, totalPhysical, totalEffort, avgWeight, largeWeight,
+      targetEffortNow, targetPhysicalNow, arrivedPhysicalNow, actualSmall, actualLarge, actualPhysical, actualEffort,
+      deltaEffort, deltaPhysical, deltaMinutes,
+      rate1Physical, rate2Physical,
+      beforeStart, afterDeadline, onBreak, pctTime, pctPkg, pctTarget,
+      neededPhysicalRatePerHour, remainingPhysical };
   }
 
 
@@ -585,8 +701,10 @@
     document.documentElement.lang = lang;
     document.getElementById('tTitle').textContent = t('title');
     document.getElementById('tSetupHeading').textContent = t('setupHeading');
-    document.getElementById('lblTotal').textContent = t('lblTotal');
-    document.getElementById('inputTotal').placeholder = t('placeholderTotal');
+    document.getElementById('lblWaves').textContent = t('lblWaves');
+    document.getElementById('btnAddWave').textContent = t('btnAddWave');
+    document.getElementById('lblLargeWeight').textContent = t('lblLargeWeight');
+    document.getElementById('lblSplitPct').textContent = t('lblSplitPct');
     document.getElementById('lblStart').textContent = t('lblStart');
     document.getElementById('lblEnd').textContent = t('lblEnd');
     document.getElementById('lblBreakStart').textContent = t('lblBreakStart');
@@ -597,7 +715,8 @@
     document.getElementById('tFlapActualLbl').textContent = t('flapActualLbl');
     document.getElementById('tFlapDeltaLbl').textContent = t('flapDeltaLbl');
     document.getElementById('tLogHeading').textContent = t('logHeading');
-    document.getElementById('inputActual').placeholder = t('placeholderActual');
+    document.getElementById('lblActualSmall').textContent = t('lblActualSmall');
+    document.getElementById('lblActualLarge').textContent = t('lblActualLarge');
     document.getElementById('btnLog').textContent = t('btnLog');
     document.getElementById('btnEditConfig').textContent = t('btnEditConfig');
     document.getElementById('btnResetDay').textContent = t('btnResetDay');
@@ -606,13 +725,70 @@
     document.getElementById('tLinkLabel').textContent = t('linkLabel');
     document.getElementById('btnOpenPanel').textContent = t('linkOpen');
     document.getElementById('tLinkHint').textContent = t('linkHint');
+    renderWaveRows();
   }
+
+  function syncWaveDraftFromDOM(){
+    const rows = document.querySelectorAll('#waveRows .wave-row');
+    rows.forEach((row, i) => {
+      if(!waveDraft[i]) return;
+      waveDraft[i].time = row.querySelector('.wave-time').value;
+      waveDraft[i].small = row.querySelector('.wave-small').value;
+      waveDraft[i].large = row.querySelector('.wave-large').value;
+    });
+  }
+
+  function renderWaveRows(){
+    const container = document.getElementById('waveRows');
+    if(!container) return;
+    if(waveDraft.length === 0){
+      waveDraft.push({ time: config.startTime || '02:00', small: '', large: '' });
+    }
+    container.innerHTML = '';
+    waveDraft.forEach((w, i) => {
+      const row = document.createElement('div');
+      row.className = 'wave-row';
+      row.innerHTML = `
+        <input type="time" class="wave-time mono" value="${w.time || ''}">
+        <input type="number" class="wave-small mono" placeholder="${t('waveSmallPh')}" inputmode="numeric" value="${w.small}">
+        <input type="number" class="wave-large mono" placeholder="${t('waveLargePh')}" inputmode="numeric" value="${w.large}">
+        <button type="button" class="wave-remove">×</button>
+      `;
+      row.querySelector('.wave-time').addEventListener('change', (e) => { waveDraft[i].time = e.target.value; updateWaveTotalsHint(); });
+      row.querySelector('.wave-small').addEventListener('input', (e) => { waveDraft[i].small = e.target.value; updateWaveTotalsHint(); });
+      row.querySelector('.wave-large').addEventListener('input', (e) => { waveDraft[i].large = e.target.value; updateWaveTotalsHint(); });
+      row.querySelector('.wave-remove').addEventListener('click', () => {
+        waveDraft.splice(i, 1);
+        renderWaveRows();
+      });
+      container.appendChild(row);
+    });
+    updateWaveTotalsHint();
+  }
+
+  function updateWaveTotalsHint(){
+    const hint = document.getElementById('waveTotalsHint');
+    if(!hint) return;
+    let small = 0, large = 0;
+    waveDraft.forEach(w => { small += Number(w.small)||0; large += Number(w.large)||0; });
+    hint.textContent = t('waveTotalsHint')(fmtNum(small+large), fmtNum(small), fmtNum(large));
+  }
+
+  document.getElementById('btnAddWave').addEventListener('click', () => {
+    syncWaveDraftFromDOM();
+    const lastTime = waveDraft.length ? waveDraft[waveDraft.length-1].time : (config.startTime || '02:00');
+    waveDraft.push({ time: lastTime, small: '', large: '' });
+    renderWaveRows();
+  });
 
   function render(){
     document.getElementById('clockNow').textContent = fmtClock(new Date());
     document.getElementById('clockDate').textContent = new Date().toLocaleDateString(lang === 'de' ? 'de-DE' : 'en-GB');
 
-    if(!dayData.totalPackages || isEditing){
+    const hasData = dayData.smallTotal != null && dayData.largeTotal != null &&
+      ((dayData.smallTotal||0) + (dayData.largeTotal||0) > 0);
+
+    if(!hasData || isEditing){
       document.getElementById('setupCard').classList.remove('hidden');
       document.getElementById('dashboard').classList.add('hidden');
       return;
@@ -622,11 +798,18 @@
 
     const s = computeState();
     document.getElementById('dayTotalLabel').innerHTML = t('totalLabel')
-      .replace('{{n}}', `<span class="num-total">${fmtNum(s.total)}</span>`)
-      .replace('{{s}}', fmtTimeShort(s.start))
-      .replace('{{e}}', fmtTimeShort(s.deadline));
-    document.getElementById('requiredPaceLabel').innerHTML = s.total > 0
-      ? t('requiredPace').replace('{{n}}', `<span class="num-pace">${fmtNum(s.rate)}</span>`)
+      .replace('{{n}}', `<span class="num-total">${fmtNum(s.totalPhysical)}</span>`)
+      .replace('{{s}}', fmtNum(s.smallTotal))
+      .replace('{{l}}', fmtNum(s.largeTotal))
+      .replace('{{ws}}', fmtTimeShort(s.start))
+      .replace('{{we}}', fmtTimeShort(s.deadline));
+    document.getElementById('requiredPaceLabel').innerHTML = s.totalPhysical > 0
+      ? t('requiredPace')
+          .replace('{{n1}}', `<span class="num-pace">${fmtNum(s.rate1Physical)}</span>`)
+          .replace('{{n2}}', `<span class="num-pace">${fmtNum(s.rate2Physical)}</span>`)
+      : '';
+    document.getElementById('arrivedSoFarLabel').textContent = (s.totalPhysical > 0 && !s.beforeStart)
+      ? t('arrivedSoFar')(fmtNum(s.arrivedPhysicalNow))
       : '';
 
     const band = document.getElementById('statusBand');
@@ -640,7 +823,7 @@
       main.style.color = 'var(--steel)';
       main.textContent = t('notStarted');
       sub.textContent = t('shiftStartsAt')(fmtTimeShort(s.start));
-    } else if (s.total <= 0) {
+    } else if (s.totalPhysical <= 0) {
       band.style.background = 'var(--steel)';
       main.style.color = 'var(--steel)';
       main.textContent = t('waitingData');
@@ -651,42 +834,42 @@
       main.textContent = t('onBreak');
       sub.textContent = t('onBreakSub')(fmtTimeShort(s.breakEnd));
     } else {
-      const absDelta = Math.abs(s.delta);
-      const isAhead = s.delta >= -1;
+      const absDeltaPhysical = Math.abs(s.deltaPhysical);
+      const isAhead = s.deltaEffort >= -1;
       const color = isAhead ? 'var(--green)' : 'var(--red)';
       band.style.background = color;
       main.style.color = color;
-      main.textContent = isAhead ? t('aheadBy')(fmtNum(absDelta)) : t('behindBy')(fmtNum(absDelta));
+      main.textContent = isAhead ? t('aheadBy')(fmtNum(absDeltaPhysical)) : t('behindBy')(fmtNum(absDeltaPhysical));
 
       const minTxt = Math.abs(s.deltaMinutes) < 1 ? t('lessThanMin') : t('minutes')(fmtNum(Math.abs(s.deltaMinutes)));
       sub.textContent = isAhead ? t('roughlyAhead')(minTxt) : t('roughlyBehind')(minTxt);
       if(s.afterDeadline){ sub.textContent += '  •  ' + t('deadlineReached'); }
     }
 
-    document.getElementById('flapTarget').textContent = fmtNum(s.targetNow);
-    document.getElementById('flapActual').textContent = fmtNum(s.actual);
+    document.getElementById('flapTarget').textContent = fmtNum(s.targetPhysicalNow);
+    document.getElementById('flapActual').textContent = fmtNum(s.actualPhysical);
     const deltaEl = document.getElementById('flapDelta');
-    deltaEl.textContent = (s.delta >= 0 ? '+' : '−') + fmtNum(Math.abs(s.delta));
-    deltaEl.style.color = s.total>0 ? (s.delta >= -1 ? 'var(--green)' : 'var(--red)') : 'var(--text)';
+    deltaEl.textContent = (s.deltaPhysical >= 0 ? '+' : '−') + fmtNum(Math.abs(s.deltaPhysical));
+    deltaEl.style.color = s.totalPhysical>0 ? (s.deltaEffort >= -1 ? 'var(--green)' : 'var(--red)') : 'var(--text)';
 
     barFill.style.width = s.pctPkg + '%';
-    barFill.style.background = s.total>0 ? (s.delta >= -1 ? 'var(--green)' : 'var(--red)') : 'var(--amber)';
-    barMark.style.left = s.pctTime + '%';
+    barFill.style.background = s.totalPhysical>0 ? (s.deltaEffort >= -1 ? 'var(--green)' : 'var(--red)') : 'var(--amber)';
+    barMark.style.left = s.pctTarget + '%';
     document.getElementById('barPct').textContent = t('pctPackages')(fmtNum(s.pctPkg));
     document.getElementById('timePct').textContent = t('pctTime')(fmtNum(s.pctTime));
 
     const paceHint = document.getElementById('paceHint');
-    if(s.total>0 && !s.beforeStart && !s.afterDeadline && !s.onBreak){
-      if(s.remainingPkgs <= 0){
+    if(s.totalPhysical>0 && !s.beforeStart && !s.afterDeadline && !s.onBreak){
+      if(s.remainingPhysical <= 0){
         paceHint.textContent = t('allDone');
-      } else if(s.neededRatePerHour !== null){
+      } else if(s.neededPhysicalRatePerHour !== null){
         const onTrack = Math.abs(s.deltaMinutes) <= 2;
         if(onTrack){
           paceHint.textContent = t('onTrackMsg');
-        } else if(s.delta < 0){
-          paceHint.textContent = t('speedUp')(fmtNum(s.neededRatePerHour), fmtNum(s.rate));
+        } else if(s.deltaEffort < 0){
+          paceHint.textContent = t('speedUp')(fmtNum(s.neededPhysicalRatePerHour));
         } else {
-          paceHint.textContent = t('easeOff')(fmtNum(s.neededRatePerHour), fmtNum(s.rate));
+          paceHint.textContent = t('easeOff')(fmtNum(s.neededPhysicalRatePerHour));
         }
       } else {
         paceHint.textContent = '';
@@ -696,11 +879,11 @@
     }
 
     const livePace = document.getElementById('livePaceLabel');
-    if(s.total>0 && !s.beforeStart && !s.afterDeadline && !s.onBreak){
-      if(s.remainingPkgs <= 0){
+    if(s.totalPhysical>0 && !s.beforeStart && !s.afterDeadline && !s.onBreak){
+      if(s.remainingPhysical <= 0){
         livePace.innerHTML = t('livePaceDone');
-      } else if(s.neededRatePerHour !== null){
-        livePace.innerHTML = t('livePaceNeeded').replace('{{n}}', `<span class="num-live-pace">${fmtNum(s.neededRatePerHour)}</span>`);
+      } else if(s.neededPhysicalRatePerHour !== null){
+        livePace.innerHTML = t('livePaceNeeded').replace('{{n}}', `<span class="num-live-pace">${fmtNum(s.neededPhysicalRatePerHour)}</span>`);
       } else {
         livePace.innerHTML = '';
       }
@@ -714,7 +897,8 @@
       const row = document.createElement('div');
       row.className = 'history-item';
       const time = new Date(item.time);
-      row.innerHTML = `<span>${fmtTimeShort(time)}</span><span class="cnt mono">${fmtNum(item.count)}</span>`;
+      const total = (item.small||0) + (item.large||0);
+      row.innerHTML = `<span>${fmtTimeShort(time)}</span><span class="cnt mono">${fmtNum(total)} (${fmtNum(item.small||0)}S / ${fmtNum(item.large||0)}L)</span>`;
       hist.appendChild(row);
     });
   }
@@ -731,12 +915,20 @@
   }
 
   document.getElementById('btnStart').addEventListener('click', async () => {
-    const total = parseInt(document.getElementById('inputTotal').value, 10);
+    syncWaveDraftFromDOM();
+    const cleanWaves = waveDraft
+      .filter(w => w.time && ((Number(w.small)||0) > 0 || (Number(w.large)||0) > 0))
+      .map(w => ({ time: w.time, small: Number(w.small)||0, large: Number(w.large)||0 }));
+
+    const smallCount = cleanWaves.reduce((sum,w) => sum + w.small, 0);
+    const largeCount = cleanWaves.reduce((sum,w) => sum + w.large, 0);
+    const largeWeight = parseFloat(document.getElementById('inputLargeWeight').value);
+    const splitPct = parseFloat(document.getElementById('inputSplitPct').value);
     const start = document.getElementById('inputStart').value;
     const end = document.getElementById('inputEnd').value;
     const breakStart = document.getElementById('inputBreakStart').value;
     const buf = parseInt(document.getElementById('inputBuffer').value, 10);
-    if(!total || total <= 0){ alert(t('confirmTotal')); return; }
+    if(smallCount <= 0 && largeCount <= 0){ alert(t('confirmTotal')); return; }
     if(!start || !end || !breakStart){ alert(t('errMissingTime')); return; }
 
     const startMin = timeToMinutes(start);
@@ -758,8 +950,12 @@
     config.shiftEnd = end;
     config.breakStart = breakStart;
     config.bufferMinutes = bufMin;
+    config.largeWeight = (isNaN(largeWeight) || largeWeight <= 0) ? 1 : largeWeight;
+    config.splitPct = isNaN(splitPct) ? 40 : Math.min(100, Math.max(0, splitPct));
     if(!isEditing){ dayData.log = []; }
-    dayData.totalPackages = total;
+    dayData.smallTotal = smallCount;
+    dayData.largeTotal = largeCount;
+    dayData.waves = cleanWaves;
     isEditing = false;
     await saveConfig();
     await saveDay();
@@ -767,23 +963,28 @@
   });
 
   document.getElementById('btnLog').addEventListener('click', async () => {
-    const val = parseInt(document.getElementById('inputActual').value, 10);
-    if(isNaN(val) || val < 0){ return; }
-    dayData.log.push({ time: new Date().toISOString(), count: val });
+    const small = parseInt(document.getElementById('inputActualSmall').value, 10);
+    const large = parseInt(document.getElementById('inputActualLarge').value, 10);
+    const smallVal = isNaN(small) ? 0 : small;
+    const largeVal = isNaN(large) ? 0 : large;
+    if(smallVal < 0 || largeVal < 0) return;
+    dayData.log.push({ time: new Date().toISOString(), small: smallVal, large: largeVal });
     await saveDay();
-    document.getElementById('inputActual').value = '';
     render();
     const flap = document.getElementById('flapActual');
     flap.classList.remove('pulse'); void flap.offsetWidth; flap.classList.add('pulse');
   });
 
-  document.getElementById('inputActual').addEventListener('keydown', (e) => {
+  document.getElementById('inputActualSmall').addEventListener('keydown', (e) => {
+    if(e.key === 'Enter'){ document.getElementById('btnLog').click(); }
+  });
+  document.getElementById('inputActualLarge').addEventListener('keydown', (e) => {
     if(e.key === 'Enter'){ document.getElementById('btnLog').click(); }
   });
 
   document.getElementById('btnResetDay').addEventListener('click', async () => {
     if(!confirm(t('confirmReset'))) return;
-    dayData = { totalPackages: null, log: [] };
+    dayData = { smallTotal: null, largeTotal: null, waves: [], log: [] };
     isEditing = false;
     await saveDay();
     render();
@@ -791,7 +992,12 @@
 
   document.getElementById('btnEditConfig').addEventListener('click', () => {
     isEditing = true;
-    document.getElementById('inputTotal').value = dayData.totalPackages || '';
+    waveDraft = (dayData.waves && dayData.waves.length)
+      ? dayData.waves.map(w => ({ time: w.time, small: String(w.small), large: String(w.large) }))
+      : [{ time: config.startTime || '02:00', small: '', large: '' }];
+    renderWaveRows();
+    document.getElementById('inputLargeWeight').value = config.largeWeight;
+    document.getElementById('inputSplitPct').value = config.splitPct;
     document.getElementById('inputStart').value = config.startTime;
     document.getElementById('inputEnd').value = config.shiftEnd;
     document.getElementById('inputBreakStart').value = config.breakStart;
@@ -826,6 +1032,8 @@
     applyStaticText();
     document.getElementById('inputBreakStart').value = config.breakStart;
     document.getElementById('inputBuffer').value = config.bufferMinutes;
+    document.getElementById('inputLargeWeight').value = config.largeWeight;
+    document.getElementById('inputSplitPct').value = config.splitPct;
     document.getElementById('inputPanelLink').value = config.panelLink || '';
     render();
     setInterval(async () => {
