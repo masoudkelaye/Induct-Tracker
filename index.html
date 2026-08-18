@@ -92,7 +92,7 @@
     background: rgba(255,255,255,0.015);
   }
   .wave-row-top{
-    display:grid; grid-template-columns: 120px 1fr 32px; gap:6px; align-items:center;
+    display:grid; grid-template-columns: 84px 1fr 32px; gap:6px; align-items:center;
   }
   .wave-row-bottom{
     display:grid; grid-template-columns: 1fr 1fr; gap:6px; margin-top:6px;
@@ -344,6 +344,11 @@
 
     <div class="log-card">
       <h3 id="tLogHeading">Log new progress</h3>
+      <div class="field">
+        <label id="lblActualTotal">Total processed so far (if mix unknown)</label>
+        <input type="number" id="inputActualTotal" inputmode="numeric" class="mono">
+      </div>
+      <div class="wave-or-label" id="tActualOrLabel" style="margin-bottom:6px;"></div>
       <div class="row2" style="margin-bottom:10px;">
         <div class="field" style="margin-bottom:0;">
           <label id="lblActualSmall">Small processed so far</label>
@@ -423,6 +428,8 @@
       flapActualLbl: 'actually processed',
       flapDeltaLbl: 'difference (packages)',
       logHeading: 'Log new progress',
+      lblActualTotal: 'Total processed so far (if mix unknown)',
+      mixUnknownTag: '(mix unknown)',
       lblActualSmall: 'Small processed so far',
       lblActualLarge: 'Large processed so far',
       btnLog: 'Log',
@@ -486,6 +493,8 @@
       flapActualLbl: 'tatsächlich bearbeitet',
       flapDeltaLbl: 'Differenz (Pakete)',
       logHeading: 'Neuen Fortschritt eintragen',
+      lblActualTotal: 'Bisher bearbeitet gesamt (falls Mix unbekannt)',
+      mixUnknownTag: '(Mix unbekannt)',
       lblActualSmall: 'Bisher bearbeitete kleine Pakete',
       lblActualLarge: 'Bisher bearbeitete große Pakete',
       btnLog: 'Eintragen',
@@ -690,9 +699,16 @@
       : (avgWeight > 0 ? idealTargetEffortNow/avgWeight : 0);
 
     const lastLog = dayData.log.length ? dayData.log[dayData.log.length-1] : null;
-    const actualSmall = lastLog ? (lastLog.small||0) : 0;
-    const actualLarge = lastLog ? (lastLog.large||0) : 0;
-    const actualPhysical = actualSmall + actualLarge;
+    const loggedSmall = lastLog ? (lastLog.small||0) : 0;
+    const loggedLarge = lastLog ? (lastLog.large||0) : 0;
+    const loggedTotal = lastLog ? (lastLog.total||0) : 0;
+    // If the person only logged a total (mix unknown), estimate its
+    // small/large split using the same ratio derived from the wave plan —
+    // physical count stays exact either way.
+    const actualHasExplicitMix = loggedSmall>0 || loggedLarge>0;
+    const actualSmall = actualHasExplicitMix ? loggedSmall : loggedTotal*(1-assumedLargeFraction);
+    const actualLarge = actualHasExplicitMix ? loggedLarge : loggedTotal*assumedLargeFraction;
+    const actualPhysical = actualHasExplicitMix ? (loggedSmall+loggedLarge) : loggedTotal;
     const actualEffort = actualSmall + actualLarge*largeWeight;
 
     const deltaEffort = actualEffort - targetEffortNow;
@@ -750,6 +766,8 @@
     document.getElementById('tFlapActualLbl').textContent = t('flapActualLbl');
     document.getElementById('tFlapDeltaLbl').textContent = t('flapDeltaLbl');
     document.getElementById('tLogHeading').textContent = t('logHeading');
+    document.getElementById('lblActualTotal').textContent = t('lblActualTotal');
+    document.getElementById('tActualOrLabel').textContent = t('waveOrLabel');
     document.getElementById('lblActualSmall').textContent = t('lblActualSmall');
     document.getElementById('lblActualLarge').textContent = t('lblActualLarge');
     document.getElementById('btnLog').textContent = t('btnLog');
@@ -946,8 +964,10 @@
       const row = document.createElement('div');
       row.className = 'history-item';
       const time = new Date(item.time);
-      const total = (item.small||0) + (item.large||0);
-      row.innerHTML = `<span>${fmtTimeShort(time)}</span><span class="cnt mono">${fmtNum(total)} (${fmtNum(item.small||0)}S / ${fmtNum(item.large||0)}L)</span>`;
+      const hasExplicit = (item.small||0) > 0 || (item.large||0) > 0;
+      const total = hasExplicit ? ((item.small||0) + (item.large||0)) : (item.total||0);
+      const detail = hasExplicit ? `(${fmtNum(item.small||0)}S / ${fmtNum(item.large||0)}L)` : t('mixUnknownTag');
+      row.innerHTML = `<span>${fmtTimeShort(time)}</span><span class="cnt mono">${fmtNum(total)} ${detail}</span>`;
       hist.appendChild(row);
     });
   }
@@ -1011,18 +1031,24 @@
   });
 
   document.getElementById('btnLog').addEventListener('click', async () => {
+    const total = parseInt(document.getElementById('inputActualTotal').value, 10);
     const small = parseInt(document.getElementById('inputActualSmall').value, 10);
     const large = parseInt(document.getElementById('inputActualLarge').value, 10);
+    const totalVal = isNaN(total) ? 0 : total;
     const smallVal = isNaN(small) ? 0 : small;
     const largeVal = isNaN(large) ? 0 : large;
-    if(smallVal < 0 || largeVal < 0) return;
-    dayData.log.push({ time: new Date().toISOString(), small: smallVal, large: largeVal });
+    if(totalVal < 0 || smallVal < 0 || largeVal < 0) return;
+    if(totalVal <= 0 && smallVal <= 0 && largeVal <= 0) return;
+    dayData.log.push({ time: new Date().toISOString(), small: smallVal, large: largeVal, total: totalVal });
     await saveDay();
     render();
     const flap = document.getElementById('flapActual');
     flap.classList.remove('pulse'); void flap.offsetWidth; flap.classList.add('pulse');
   });
 
+  document.getElementById('inputActualTotal').addEventListener('keydown', (e) => {
+    if(e.key === 'Enter'){ document.getElementById('btnLog').click(); }
+  });
   document.getElementById('inputActualSmall').addEventListener('keydown', (e) => {
     if(e.key === 'Enter'){ document.getElementById('btnLog').click(); }
   });
