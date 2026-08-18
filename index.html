@@ -87,14 +87,22 @@
   .field input:focus, .field select:focus{ outline:none; border-color: var(--amber); }
   .row2{ display:grid; grid-template-columns:1fr 1fr; gap:12px; }
   .row3{ display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px; }
-  .wave-row{
-    display:grid; grid-template-columns: 90px 1fr 1fr 32px; gap:6px; margin-bottom:8px; align-items:center;
+  .wave-card{
+    border:1px solid var(--line); border-radius:10px; padding:10px 10px 8px; margin-bottom:8px;
+    background: rgba(255,255,255,0.015);
   }
-  .wave-row input{
+  .wave-row-top{
+    display:grid; grid-template-columns: 120px 1fr 32px; gap:6px; align-items:center;
+  }
+  .wave-row-bottom{
+    display:grid; grid-template-columns: 1fr 1fr; gap:6px; margin-top:6px;
+  }
+  .wave-or-label{ font-size:10px; color:var(--text-dim); margin: 6px 0 0 2px; }
+  .wave-card input{
     width:100%; background: var(--panel-2); border:1px solid var(--line); border-radius:8px;
     color: var(--text); padding: 8px 8px; font-size:13px; font-family:'IBM Plex Mono',monospace;
   }
-  .wave-row input:focus{ outline:none; border-color: var(--amber); }
+  .wave-card input:focus{ outline:none; border-color: var(--amber); }
   .wave-remove{
     background: transparent; border:1px solid var(--line); color: var(--text-dim);
     border-radius:8px; width:32px; height:34px; cursor:pointer; font-size:16px; line-height:1;
@@ -215,8 +223,8 @@
     .flap .val{ font-size:21px; }
     .status-headline{ font-size:24px; }
     .row3{ grid-template-columns: 1fr; }
-    .wave-row{ grid-template-columns: 78px 1fr 1fr 28px; gap:4px; }
-    .wave-row input{ padding:8px 5px; font-size:12px; }
+    .wave-row-top{ grid-template-columns: 74px 1fr 28px; gap:4px; }
+    .wave-card input{ padding:8px 5px; font-size:12px; }
   }
 </style>
 </head>
@@ -393,8 +401,10 @@
       setupHeading: "Start today's shift",
       lblWaves: 'Planned arrival waves (time + small + large)',
       btnAddWave: '+ Add wave',
-      waveTimePh: 'Time', waveSmallPh: 'Small', waveLargePh: 'Large',
+      waveTimePh: 'Time', waveSmallPh: 'Small', waveLargePh: 'Large', waveTotalPh: 'Total (if mix unknown)',
+      waveOrLabel: 'or, if you know the split:',
       waveTotalsHint: (n, s, l) => `Total planned: ${n} packages (${s} small + ${l} large)`,
+      waveTotalsHintUnknown: (n, s, l, u) => `Total planned: ${n} packages (${s} small + ${l} large + ${u} mix unknown, estimated)`,
       arrivedSoFar: (n) => `Arrived so far (per plan): ${n} packages`,
       lblLargeWeight: 'Large package weight (× small)',
       lblSplitPct: '% processed before break',
@@ -454,8 +464,10 @@
       setupHeading: 'Heutige Schicht starten',
       lblWaves: 'Geplante Ankunftswellen (Zeit + klein + groß)',
       btnAddWave: '+ Welle hinzufügen',
-      waveTimePh: 'Zeit', waveSmallPh: 'Klein', waveLargePh: 'Groß',
+      waveTimePh: 'Zeit', waveSmallPh: 'Klein', waveLargePh: 'Groß', waveTotalPh: 'Gesamt (falls Mix unbekannt)',
+      waveOrLabel: 'oder, falls die Aufteilung bekannt ist:',
       waveTotalsHint: (n, s, l) => `Geplant gesamt: ${n} Pakete (${s} klein + ${l} groß)`,
+      waveTotalsHintUnknown: (n, s, l, u) => `Geplant gesamt: ${n} Pakete (${s} klein + ${l} groß + ${u} Mix unbekannt, geschätzt)`,
       arrivedSoFar: (n) => `Bisher angekommen (laut Plan): ${n} Pakete`,
       lblLargeWeight: 'Gewicht großes Paket (× klein)',
       lblSplitPct: '% vor der Pause bearbeitet',
@@ -605,10 +617,27 @@
 
     const elapsedWorking = Math.max(0, elapsedRaw - overlap);
 
-    const smallTotal = dayData.smallTotal || 0;
-    const largeTotal = dayData.largeTotal || 0;
+    const allWaves = dayData.waves || [];
     const largeWeight = config.largeWeight || 1;
-    const totalPhysical = smallTotal + largeTotal;
+
+    // Waves with an explicit small/large split are exact. Waves that only
+    // give a total (mix unknown) get their split estimated from the ratio
+    // of all explicit waves — falling back to a neutral 50/50 assumption
+    // if no explicit waves exist yet.
+    let explicitSmallSum = 0, explicitLargeSum = 0, unknownTotalSum = 0;
+    allWaves.forEach(w => {
+      const s = Number(w.small)||0, l = Number(w.large)||0, tot = Number(w.total)||0;
+      if(s>0 || l>0){ explicitSmallSum += s; explicitLargeSum += l; }
+      else if(tot>0){ unknownTotalSum += tot; }
+    });
+    const explicitPhysical = explicitSmallSum + explicitLargeSum;
+    const assumedLargeFraction = explicitPhysical > 0 ? (explicitLargeSum/explicitPhysical) : 0.5;
+    const estSmallFromUnknown = unknownTotalSum * (1-assumedLargeFraction);
+    const estLargeFromUnknown = unknownTotalSum * assumedLargeFraction;
+
+    const smallTotal = explicitSmallSum + estSmallFromUnknown;
+    const largeTotal = explicitLargeSum + estLargeFromUnknown;
+    const totalPhysical = explicitPhysical + unknownTotalSum;
     const totalEffort = smallTotal + largeTotal*largeWeight;
     const avgWeight = totalPhysical > 0 ? totalEffort/totalPhysical : 1;
 
@@ -635,15 +664,21 @@
     // planned wave schedule — this way, a wave that's early doesn't force
     // an unrealistic rush, and a wave that's late doesn't unfairly count
     // as "falling behind".
-    const waves = dayData.waves || [];
-    let arrivedSmall = 0, arrivedLarge = 0;
-    waves.forEach(w => {
+    let arrivedExplicitSmall = 0, arrivedExplicitLarge = 0, arrivedUnknownTotal = 0;
+    allWaves.forEach(w => {
       if(!w.time) return;
       const wTime = parseTimeToday(w.time);
-      if(wTime <= now){ arrivedSmall += Number(w.small)||0; arrivedLarge += Number(w.large)||0; }
+      if(wTime > now) return;
+      const s = Number(w.small)||0, l = Number(w.large)||0, tot = Number(w.total)||0;
+      if(s>0 || l>0){ arrivedExplicitSmall += s; arrivedExplicitLarge += l; }
+      else if(tot>0){ arrivedUnknownTotal += tot; }
     });
-    const arrivedPhysicalNow = arrivedSmall + arrivedLarge;
-    const arrivedEffortNow = arrivedSmall + arrivedLarge*largeWeight;
+    // Physical count of what's arrived is always exact, even for
+    // mix-unknown waves — only the type breakdown (used for effort/weighting)
+    // is estimated, using the same ratio derived from explicit waves above.
+    const arrivedPhysicalNow = arrivedExplicitSmall + arrivedExplicitLarge + arrivedUnknownTotal;
+    const arrivedEffortNow = arrivedExplicitSmall + arrivedExplicitLarge*largeWeight
+      + arrivedUnknownTotal*(1-assumedLargeFraction) + arrivedUnknownTotal*assumedLargeFraction*largeWeight;
 
     const targetEffortNow = Math.min(idealTargetEffortNow, arrivedEffortNow);
     // When the arrival cap is the binding constraint, we know the exact
@@ -729,12 +764,13 @@
   }
 
   function syncWaveDraftFromDOM(){
-    const rows = document.querySelectorAll('#waveRows .wave-row');
-    rows.forEach((row, i) => {
+    const cards = document.querySelectorAll('#waveRows .wave-card');
+    cards.forEach((card, i) => {
       if(!waveDraft[i]) return;
-      waveDraft[i].time = row.querySelector('.wave-time').value;
-      waveDraft[i].small = row.querySelector('.wave-small').value;
-      waveDraft[i].large = row.querySelector('.wave-large').value;
+      waveDraft[i].time = card.querySelector('.wave-time').value;
+      waveDraft[i].total = card.querySelector('.wave-total').value;
+      waveDraft[i].small = card.querySelector('.wave-small').value;
+      waveDraft[i].large = card.querySelector('.wave-large').value;
     });
   }
 
@@ -742,26 +778,33 @@
     const container = document.getElementById('waveRows');
     if(!container) return;
     if(waveDraft.length === 0){
-      waveDraft.push({ time: config.startTime || '02:00', small: '', large: '' });
+      waveDraft.push({ time: config.startTime || '02:00', small: '', large: '', total: '' });
     }
     container.innerHTML = '';
     waveDraft.forEach((w, i) => {
-      const row = document.createElement('div');
-      row.className = 'wave-row';
-      row.innerHTML = `
-        <input type="time" class="wave-time mono" value="${w.time || ''}">
-        <input type="number" class="wave-small mono" placeholder="${t('waveSmallPh')}" inputmode="numeric" value="${w.small}">
-        <input type="number" class="wave-large mono" placeholder="${t('waveLargePh')}" inputmode="numeric" value="${w.large}">
-        <button type="button" class="wave-remove">×</button>
+      const card = document.createElement('div');
+      card.className = 'wave-card';
+      card.innerHTML = `
+        <div class="wave-row-top">
+          <input type="time" class="wave-time mono" value="${w.time || ''}">
+          <input type="number" class="wave-total mono" placeholder="${t('waveTotalPh')}" inputmode="numeric" value="${w.total||''}">
+          <button type="button" class="wave-remove">×</button>
+        </div>
+        <div class="wave-or-label">${t('waveOrLabel')}</div>
+        <div class="wave-row-bottom">
+          <input type="number" class="wave-small mono" placeholder="${t('waveSmallPh')}" inputmode="numeric" value="${w.small||''}">
+          <input type="number" class="wave-large mono" placeholder="${t('waveLargePh')}" inputmode="numeric" value="${w.large||''}">
+        </div>
       `;
-      row.querySelector('.wave-time').addEventListener('change', (e) => { waveDraft[i].time = e.target.value; updateWaveTotalsHint(); });
-      row.querySelector('.wave-small').addEventListener('input', (e) => { waveDraft[i].small = e.target.value; updateWaveTotalsHint(); });
-      row.querySelector('.wave-large').addEventListener('input', (e) => { waveDraft[i].large = e.target.value; updateWaveTotalsHint(); });
-      row.querySelector('.wave-remove').addEventListener('click', () => {
+      card.querySelector('.wave-time').addEventListener('change', (e) => { waveDraft[i].time = e.target.value; updateWaveTotalsHint(); });
+      card.querySelector('.wave-total').addEventListener('input', (e) => { waveDraft[i].total = e.target.value; updateWaveTotalsHint(); });
+      card.querySelector('.wave-small').addEventListener('input', (e) => { waveDraft[i].small = e.target.value; updateWaveTotalsHint(); });
+      card.querySelector('.wave-large').addEventListener('input', (e) => { waveDraft[i].large = e.target.value; updateWaveTotalsHint(); });
+      card.querySelector('.wave-remove').addEventListener('click', () => {
         waveDraft.splice(i, 1);
         renderWaveRows();
       });
-      container.appendChild(row);
+      container.appendChild(card);
     });
     updateWaveTotalsHint();
   }
@@ -769,15 +812,22 @@
   function updateWaveTotalsHint(){
     const hint = document.getElementById('waveTotalsHint');
     if(!hint) return;
-    let small = 0, large = 0;
-    waveDraft.forEach(w => { small += Number(w.small)||0; large += Number(w.large)||0; });
-    hint.textContent = t('waveTotalsHint')(fmtNum(small+large), fmtNum(small), fmtNum(large));
+    let small = 0, large = 0, unknown = 0;
+    waveDraft.forEach(w => {
+      const s = Number(w.small)||0, l = Number(w.large)||0, tot = Number(w.total)||0;
+      if(s>0 || l>0){ small += s; large += l; }
+      else if(tot>0){ unknown += tot; }
+    });
+    const grand = small+large+unknown;
+    hint.textContent = unknown > 0
+      ? t('waveTotalsHintUnknown')(fmtNum(grand), fmtNum(small), fmtNum(large), fmtNum(unknown))
+      : t('waveTotalsHint')(fmtNum(grand), fmtNum(small), fmtNum(large));
   }
 
   document.getElementById('btnAddWave').addEventListener('click', () => {
     syncWaveDraftFromDOM();
     const lastTime = waveDraft.length ? waveDraft[waveDraft.length-1].time : (config.startTime || '02:00');
-    waveDraft.push({ time: lastTime, small: '', large: '' });
+    waveDraft.push({ time: lastTime, small: '', large: '', total: '' });
     renderWaveRows();
   });
 
@@ -785,8 +835,7 @@
     document.getElementById('clockNow').textContent = fmtClock(new Date());
     document.getElementById('clockDate').textContent = new Date().toLocaleDateString(lang === 'de' ? 'de-DE' : 'en-GB');
 
-    const hasData = dayData.smallTotal != null && dayData.largeTotal != null &&
-      ((dayData.smallTotal||0) + (dayData.largeTotal||0) > 0);
+    const hasData = Array.isArray(dayData.waves) && dayData.waves.length > 0;
 
     if(!hasData || isEditing){
       document.getElementById('setupCard').classList.remove('hidden');
@@ -917,18 +966,19 @@
   document.getElementById('btnStart').addEventListener('click', async () => {
     syncWaveDraftFromDOM();
     const cleanWaves = waveDraft
-      .filter(w => w.time && ((Number(w.small)||0) > 0 || (Number(w.large)||0) > 0))
-      .map(w => ({ time: w.time, small: Number(w.small)||0, large: Number(w.large)||0 }));
+      .filter(w => w.time && ((Number(w.small)||0) > 0 || (Number(w.large)||0) > 0 || (Number(w.total)||0) > 0))
+      .map(w => ({ time: w.time, small: Number(w.small)||0, large: Number(w.large)||0, total: Number(w.total)||0 }));
 
-    const smallCount = cleanWaves.reduce((sum,w) => sum + w.small, 0);
-    const largeCount = cleanWaves.reduce((sum,w) => sum + w.large, 0);
+    const smallCount = cleanWaves.reduce((sum,w) => sum + (w.small>0||w.large>0 ? w.small : 0), 0);
+    const largeCount = cleanWaves.reduce((sum,w) => sum + (w.small>0||w.large>0 ? w.large : 0), 0);
+    const unknownCount = cleanWaves.reduce((sum,w) => sum + (w.small===0 && w.large===0 ? w.total : 0), 0);
     const largeWeight = parseFloat(document.getElementById('inputLargeWeight').value);
     const splitPct = parseFloat(document.getElementById('inputSplitPct').value);
     const start = document.getElementById('inputStart').value;
     const end = document.getElementById('inputEnd').value;
     const breakStart = document.getElementById('inputBreakStart').value;
     const buf = parseInt(document.getElementById('inputBuffer').value, 10);
-    if(smallCount <= 0 && largeCount <= 0){ alert(t('confirmTotal')); return; }
+    if(smallCount <= 0 && largeCount <= 0 && unknownCount <= 0){ alert(t('confirmTotal')); return; }
     if(!start || !end || !breakStart){ alert(t('errMissingTime')); return; }
 
     const startMin = timeToMinutes(start);
@@ -953,8 +1003,6 @@
     config.largeWeight = (isNaN(largeWeight) || largeWeight <= 0) ? 1 : largeWeight;
     config.splitPct = isNaN(splitPct) ? 40 : Math.min(100, Math.max(0, splitPct));
     if(!isEditing){ dayData.log = []; }
-    dayData.smallTotal = smallCount;
-    dayData.largeTotal = largeCount;
     dayData.waves = cleanWaves;
     isEditing = false;
     await saveConfig();
@@ -993,8 +1041,16 @@
   document.getElementById('btnEditConfig').addEventListener('click', () => {
     isEditing = true;
     waveDraft = (dayData.waves && dayData.waves.length)
-      ? dayData.waves.map(w => ({ time: w.time, small: String(w.small), large: String(w.large) }))
-      : [{ time: config.startTime || '02:00', small: '', large: '' }];
+      ? dayData.waves.map(w => {
+          const isUnknown = (!w.small && !w.large) && w.total;
+          return {
+            time: w.time,
+            small: isUnknown ? '' : String(w.small||''),
+            large: isUnknown ? '' : String(w.large||''),
+            total: isUnknown ? String(w.total) : ''
+          };
+        })
+      : [{ time: config.startTime || '02:00', small: '', large: '', total: '' }];
     renderWaveRows();
     document.getElementById('inputLargeWeight').value = config.largeWeight;
     document.getElementById('inputSplitPct').value = config.splitPct;
